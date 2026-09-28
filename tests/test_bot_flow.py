@@ -215,3 +215,33 @@ def test_analysis_uses_smaller_photo_size():
     unit = Unit(SOURCE, 1)
     unit.add_message(m)
     assert (unit.photos[0].file_id, unit.photos[0].preview_id) == ("l", "m")
+
+
+def test_split_albums_is_balanced():
+    from lcboutique.bot import split_albums
+
+    assert [len(c) for c in split_albums(list(range(21)))] == [7, 7, 7]
+    assert [len(c) for c in split_albums(list(range(20)))] == [10, 10]
+    assert [len(c) for c in split_albums(list(range(11)))] == [6, 5]
+    assert [len(c) for c in split_albums(list(range(3)))] == [3]
+
+
+def test_photos_first_text_on_last_album(monkeypatch):
+    from lcboutique.pipeline import Media, ReadyPost
+
+    calls = []
+
+    class FakeBot:
+        async def send_media_group(self, chat, items):
+            calls.append([item.caption for item in items])
+
+        async def send_message(self, chat, text, **kw):
+            calls.append(["TEXT"])
+
+    bot = make_bot()
+    bot.app = SimpleNamespace(bot=FakeBot())
+    post = ReadyPost(category="rochie", text="<b>Rochie</b>", media=[Media("photo", f"p{i}") for i in range(21)], summary="")
+    asyncio.run(LCBoutiqueBot._send_post(bot, post))
+    assert len(calls) == 3
+    assert all(c is None for c in calls[0] + calls[1])  # primele albume fără text
+    assert calls[2][0] == "<b>Rochie</b>" and all(c is None for c in calls[2][1:])  # textul pe ultimul album

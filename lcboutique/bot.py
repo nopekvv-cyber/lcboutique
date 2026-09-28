@@ -298,13 +298,14 @@ class LCBoutiqueBot:
             return
 
         caption_on_media = fits_caption(post.text)
-        chunks = [post.media[i : i + MAX_ALBUM] for i in range(0, len(post.media), MAX_ALBUM)]
+        chunks = split_albums(post.media)
         for n, chunk in enumerate(chunks):
             if n:
                 await asyncio.sleep(PAUSE_BETWEEN_POSTS)  # multe albume la rând: evităm limitele Telegram
             items = []
             for i, m in enumerate(chunk):
-                caption = post.text if (caption_on_media and n == 0 and i == 0) else None
+                # textul la final: pe ultimul album (Telegram îl afișează sub album)
+                caption = post.text if (caption_on_media and n == len(chunks) - 1 and i == 0) else None
                 cls = InputMediaPhoto if m.kind == "photo" else InputMediaVideo
                 items.append(cls(m.file_id, caption=caption, parse_mode=ParseMode.HTML if caption else None))
             if len(items) == 1:
@@ -327,6 +328,20 @@ class LCBoutiqueBot:
 
     async def on_error(self, update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
         log.error("Eroare Telegram", exc_info=context.error)
+
+
+def split_albums(media: list, size: int = MAX_ALBUM) -> list[list]:
+    """Împarte pozele în albume de maxim `size`, cât mai egale (ex. 21 → 7 + 7 + 7)."""
+    if not media:
+        return []
+    count = -(-len(media) // size)
+    base, extra = divmod(len(media), count)
+    chunks, start = [], 0
+    for i in range(count):
+        end = start + base + (1 if i < extra else 0)
+        chunks.append(media[start:end])
+        start = end
+    return chunks
 
 
 async def _retry(send, attempts: int = 5):

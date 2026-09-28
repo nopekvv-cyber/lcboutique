@@ -40,7 +40,8 @@ O rochie comodă și elegantă, cu croială dreaptă și lungime midi, potrivit�
   sau ca mesaj separat. Tot ce a venit înainte de text devine un singur produs. Botul așteaptă textul până la
   3 minute de la ultima poză (`PHOTOS_WAIT_SECONDS`).
 - Dacă textul vine primul, pozele trimise imediat după el (în max. 25 s) se atașează lui.
-- Pe canal se publică toate pozele (câte 10 într-un album, limita Telegram), cu descrierea pe primul album.
+- Pe canal se publică întâi toate pozele (albume de maxim 10, limita Telegram, împărțite egal), iar descrierea
+  apare la final, sub ultimul album.
   Pentru analiză asistentul vede primele 20 de poze, la rezoluție redusă (mai ieftin).
 - Mai multe produse (coduri diferite) în aceeași postare: botul face câte o postare separată pentru fiecare și
   împarte pozele între ele. Cel mai sigur este totuși câte un album per produs.
