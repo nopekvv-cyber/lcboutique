@@ -7,11 +7,13 @@ import logging
 
 import anthropic
 
-from .models import PROFIT_RANGES, Analysis
+from .models import PROFIT_RANGES, TOPICS, Analysis
 
 log = logging.getLogger(__name__)
 
-_RANGES = "\n".join(f"- {cat}: {lo}–{hi} lei" for cat, (lo, hi) in PROFIT_RANGES.items())
+_RANGES = "\n".join(
+    f"- {cat} ({TOPICS[cat]}): {lo}–{hi} lei" for cat, (lo, hi) in PROFIT_RANGES.items() if cat != "haine_pe_loc"
+)
 
 SYSTEM_PROMPT = f"""Ești asistentul LC boutique, un magazin online de haine pentru femei.
 Primești postarea unui producător (de obicei în ucraineană sau rusă): fotografii numerotate #0, #1, ... și textul.
@@ -42,7 +44,16 @@ Reguli:
    material, complexitatea modelului și aspectul produsului (mai ieftin/simplu → spre minim,
    mai scump/elaborat → spre maxim):
 {_RANGES}
-9. `category`: una dintre valorile permise; „alta" doar dacă nicio altă categorie nu se potrivește.
+9. `category`: topicul din grupul LC boutique în care se publică produsul (cel mai potrivit, unul singur):
+   - rochii de zi cu zi → rochite; rochii de seară/ocazie/evening → rochii_elegante;
+   - costume (sacou/bluză + pantaloni/fustă, compleuri) → costume; costume sportive/trening → costume_sport;
+     costume office/cu sacou clasic → costume_clasice; costume din tricot → costume_tricotate;
+   - geci, scurte, trenciuri, bomber, puf → scurte_trenciuri; paltoane → paltoane; veste → jalete;
+   - blugi și pantaloni → pantaloni; fuste și șorți → fustite_sorti; pulovere/hanorace → pulovere;
+   - malete (longsleeve), body → malete_body; topuri, corsete → topuri_corsete; maiouri → maiouri;
+   - bluze → bluzite; cămăși → camasi; costume de baie/plajă → plaja; salopete → salopete;
+   - marimi_mari DOAR dacă producătorul prezintă produsul explicit ca mărimi mari/plus size (батал);
+   - barbati DOAR pentru haine bărbătești.
 10. `photo_indices`: pozele care aparțin fiecărui produs. Dacă e un singur produs, toate pozele.
 11. `notes`: scrie scurt, în română, doar dacă ceva lipsește sau e neclar (ex. lipsește codul sau prețul).
 """

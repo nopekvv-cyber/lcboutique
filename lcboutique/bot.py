@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from dataclasses import dataclass, field
+from pathlib import Path
 
 from telegram import InputMediaPhoto, InputMediaVideo, Message, ReplyParameters, Update
 from telegram.constants import ParseMode
@@ -14,7 +15,9 @@ from telegram.ext import Application, ContextTypes, MessageHandler, filters
 from .analyzer import AnalysisError, Analyzer
 from .config import Config
 from .formatter import fits_caption
+from .models import TOPICS
 from .pipeline import Media, ReadyPost, build_posts
+from .topics import TopicStore
 
 log = logging.getLogger(__name__)
 
@@ -86,11 +89,22 @@ class LCBoutiqueBot:
     def __init__(self, cfg: Config) -> None:
         self.cfg = cfg
         self.analyzer = Analyzer(cfg.anthropic_model, cfg.anthropic_effort)
+        self.topics = TopicStore(Path(cfg.data_dir) / "topics.json", cfg.topics)
         self.app = Application.builder().token(cfg.telegram_token).build()
-        # /id în orice grup sau canal: botul răspunde cu ID-ul chatului (pentru configurare)
+        # /id în orice grup, canal sau topic: botul răspunde cu ID-ul (pentru configurare)
         self.app.add_handler(
             MessageHandler(filters.Regex(r"^/id(@\w+)?\s*$") & ~filters.UpdateType.EDITED, self.on_id)
         )
+        self.app.add_handler(
+            MessageHandler(filters.Regex(r"^/topics(@\w+)?\s*$") & ~filters.UpdateType.EDITED, self.on_topics)
+        )
+        if cfg.target_chat_id:
+            target = cfg.target_chat_id
+            target_filter = (
+                filters.Chat(username=target.lstrip("@")) if isinstance(target, str) else filters.Chat(target)
+            )
+            # învață topicurile din orice mesaj din grupul de vânzare (grup separat de handlere)
+            self.app.add_handler(MessageHandler(target_filter, self.on_target_message), group=1)
         if cfg.is_configured:
             self.app.add_handler(
                 MessageHandler(
@@ -132,11 +146,39 @@ class LCBoutiqueBot:
         msg = update.effective_message
         if chat is None or msg is None:
             return
-        log.info("/id în %r (%s): %s", chat.title, chat.type, chat.id)
+        log.info("/id în %r (%s): %s, topic %s", chat.title, chat.type, chat.id, msg.message_thread_id)
         text = f"ID-ul acestui chat ({chat.title or chat.type}):\n<code>{chat.id}</code>"
+        if msg.is_topic_message and msg.message_thread_id:
+            name = _topic_name(msg)
+            key = self.topics.learn(name, msg.message_thread_id) if name else None
+            text += f"\n\nTopic: {name or '?'} (nr. <code>{msg.message_thread_id}</code>)"
+            if key:
+                text += f"\n✅ Aici se vor publica produsele din categoria „{TOPICS[key]}”."
+            else:
+                text += "\n⚠️ Nu recunosc acest topic ca una dintre categoriile LC boutique."
         if chat.type == "channel":
             text += "\n\n(Acest mesaj și /id pot fi șterse din canal.)"
         await msg.reply_text(text, parse_mode=ParseMode.HTML)
+
+    async def on_topics(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        msg = update.effective_message
+        if msg is None:
+            return
+        text = "Topicuri învățate:\n" + self.topics.status()
+        line = self.topics.env_line()
+        if line:
+            text += (
+                "\n\nCa să nu se piardă la redeploy, puneți în Railway variabila TOPICS cu valoarea:\n"
+                f"<code>{line}</code>"
+            )
+        await msg.reply_text(text, parse_mode=ParseMode.HTML)
+
+    async def on_target_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        msg = update.effective_message
+        if msg and msg.is_topic_message and msg.message_thread_id:
+            name = _topic_name(msg)
+            if name:
+                self.topics.learn(name, msg.message_thread_id)
 
     async def on_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         msg = update.effective_message
@@ -284,7 +326,15 @@ class LCBoutiqueBot:
                 try:
                     await self._send_post(post)
                     if self.cfg.confirm_in_source:
-                        await self._report(post.source_chat_id, post.source_message_id, f"✅ Publicat: {post.summary}")
+                        topic = TOPICS.get(post.category, post.category)
+                        where = (
+                            f"în topicul „{topic}”"
+                            if self.topics.thread_for(post.category)
+                            else f"în General (topicul „{topic}” nu e învățat — scrieți /id în el)"
+                        )
+                        await self._report(
+                            post.source_chat_id, post.source_message_id, f"✅ Publicat {where}: {post.summary}"
+                        )
                 except TelegramError as exc:
                     log.exception("Publicarea a eșuat")
                     await self._report(post.source_chat_id, post.source_message_id, f"❌ Publicarea a eșuat: {exc}")
@@ -293,8 +343,9 @@ class LCBoutiqueBot:
     async def _send_post(self, post: ReadyPost) -> None:
         bot = self.app.bot
         chat = self.cfg.target_chat_id
+        topic = {"message_thread_id": self.topics.thread_for(post.category)}
         if not post.media:
-            await _retry(lambda: bot.send_message(chat, post.text, parse_mode=ParseMode.HTML))
+            await _retry(lambda: bot.send_message(chat, post.text, parse_mode=ParseMode.HTML, **topic))
             return
 
         caption_on_media = fits_caption(post.text)
@@ -311,11 +362,11 @@ class LCBoutiqueBot:
             if len(items) == 1:
                 one = items[0]
                 send = bot.send_photo if chunk[0].kind == "photo" else bot.send_video
-                await _retry(lambda: send(chat, one.media, caption=one.caption, parse_mode=one.parse_mode))
+                await _retry(lambda: send(chat, one.media, caption=one.caption, parse_mode=one.parse_mode, **topic))
             else:
-                await _retry(lambda: bot.send_media_group(chat, items))
+                await _retry(lambda: bot.send_media_group(chat, items, **topic))
         if not caption_on_media:
-            await _retry(lambda: bot.send_message(chat, post.text, parse_mode=ParseMode.HTML))
+            await _retry(lambda: bot.send_message(chat, post.text, parse_mode=ParseMode.HTML, **topic))
 
     async def _report(self, chat_id: int, reply_to: int, text: str) -> None:
         """Mesaj pentru proprietară (în grupul sursă sau în chatul de rapoarte)."""
@@ -328,6 +379,18 @@ class LCBoutiqueBot:
 
     async def on_error(self, update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
         log.error("Eroare Telegram", exc_info=context.error)
+
+
+def _topic_name(msg: Message) -> str | None:
+    """Numele topicului în care a fost scris mesajul (din mesajul de creare a topicului)."""
+    for source in (msg, msg.reply_to_message):
+        if source is None:
+            continue
+        for attr in ("forum_topic_created", "forum_topic_edited"):
+            info = getattr(source, attr, None)
+            if info is not None and getattr(info, "name", None):
+                return info.name
+    return None
 
 
 def split_albums(media: list, size: int = MAX_ALBUM) -> list[list]:

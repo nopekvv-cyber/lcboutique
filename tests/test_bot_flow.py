@@ -32,7 +32,7 @@ def make_bot(**overrides):
 
     async def analyze(text, photos):
         bot.seen.append((text, photos))
-        category = "geaca" if "куртка" in text else "rochie"
+        category = "scurte_trenciuri" if "куртка" in text else "rochite"
         code = text.split()[0] if text else ""
         return Analysis(
             products=[
@@ -119,7 +119,7 @@ def test_batch_is_grouped_by_category():
 
     bot = asyncio.run(run())
     codes = [p.text.split("Cod/Model: ")[1].split("\n")[0] for p in bot.sent]
-    assert codes == ["D-1", "D-2", "G-1", "G-2"]
+    assert codes == ["G-1", "G-2", "D-1", "D-2"]  # ordinea topicurilor: Scurte înaintea Rochițelor
 
 
 def test_text_without_photos_is_reported_not_published():
@@ -181,7 +181,7 @@ def test_two_products_back_to_back_stay_separate():
         return bot
 
     bot = asyncio.run(run())
-    assert [[m.file_id for m in p.media] for p in bot.sent] == [["x1", "x2", "x3"], ["y4", "y5", "y6"]]
+    assert sorted([m.file_id for m in p.media] for p in bot.sent) == [["x1", "x2", "x3"], ["y4", "y5", "y6"]]
 
 
 def test_many_albums_then_text_as_separate_message():
@@ -232,7 +232,7 @@ def test_photos_first_text_on_last_album(monkeypatch):
     calls = []
 
     class FakeBot:
-        async def send_media_group(self, chat, items):
+        async def send_media_group(self, chat, items, **kw):
             calls.append([item.caption for item in items])
 
         async def send_message(self, chat, text, **kw):
@@ -240,7 +240,7 @@ def test_photos_first_text_on_last_album(monkeypatch):
 
     bot = make_bot()
     bot.app = SimpleNamespace(bot=FakeBot())
-    post = ReadyPost(category="rochie", text="<b>Rochie</b>", media=[Media("photo", f"p{i}") for i in range(21)], summary="")
+    post = ReadyPost(category="rochite", text="<b>Rochie</b>", media=[Media("photo", f"p{i}") for i in range(21)], summary="")
     asyncio.run(LCBoutiqueBot._send_post(bot, post))
     assert len(calls) == 3
     assert all(c is None for c in calls[0] + calls[1])  # primele albume fără text

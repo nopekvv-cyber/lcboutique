@@ -68,6 +68,10 @@ class Config:
     # (sortate pe categorii). 0 = publicare imediată.
     publish_delay: float = 60.0
     confirm_in_source: bool = True
+    # Folderul unde botul ține minte topicurile învățate
+    data_dir: str = "data"
+    # Legăturile categorie=topic salvate permanent (generate de comanda /topics)
+    topics: str = ""
     pricing: PricingConfig = field(default_factory=PricingConfig)
 
     @property
@@ -95,6 +99,8 @@ class Config:
             pair_wait=_env_float("PAIR_WAIT_SECONDS", 25.0),
             publish_delay=_env_float("PUBLISH_DELAY_SECONDS", 60.0),
             confirm_in_source=_env_bool("CONFIRM_IN_SOURCE", True),
+            data_dir=os.environ.get("DATA_DIR") or "data",
+            topics=os.environ.get("TOPICS", ""),
             pricing=PricingConfig(
                 uah_to_lei=_env_float("UAH_TO_LEI", 0.50),
                 usd_to_lei=_env_float("USD_TO_LEI", 20.0),

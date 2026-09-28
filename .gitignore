@@ -5,3 +5,4 @@ venv/
 .env
 *.log
 .pytest_cache/
+data/

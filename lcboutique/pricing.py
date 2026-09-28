@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from .config import PricingConfig
-from .models import PROFIT_RANGES, SupplierPrice
+from .models import DEFAULT_PROFIT, PROFIT_RANGES, SupplierPrice
 
 
 class PricingError(Exception):
@@ -80,7 +80,7 @@ def calculate_price(
     prices: list[SupplierPrice], category: str, profit_lei: int, cfg: PricingConfig
 ) -> PriceResult:
     supplier = pick_supplier_price(prices, cfg)
-    pmin, pmax = PROFIT_RANGES.get(category, PROFIT_RANGES["alta"])
+    pmin, pmax = PROFIT_RANGES.get(category, DEFAULT_PROFIT)
     profit = max(pmin, min(pmax, profit_lei))
     rate = rate_to_lei(supplier.currency, cfg)
     base = supplier.amount * rate + cfg.shipping_lei

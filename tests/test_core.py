@@ -15,7 +15,7 @@ def price(amount, kind="unspecified", currency="UAH"):
 
 def product(**kw):
     base = dict(
-        category="rochie",
+        category="rochite",
         title="Rochie midi din tricot",
         code="R-1452",
         sizes="42-44, 46-48",
@@ -37,7 +37,7 @@ def product(**kw):
 
 def test_formula_and_rounding():
     # 700 × 0.5 + 100 = 450; + 180 = 630 → cel mai apropiat preț frumos în [600, 650] este 650
-    r = calculate_price([price(700)], "rochie", 180, CFG)
+    r = calculate_price([price(700)], "rochite", 180, CFG)
     assert r.base_lei == 450
     assert r.final_lei == 650
     assert 150 <= r.profit_lei <= 200
@@ -45,7 +45,7 @@ def test_formula_and_rounding():
 
 @pytest.mark.parametrize(
     "uah,category,profit",
-    [(300, "top", 120), (850, "rochie", 150), (1450, "costum_sport", 200), (2600, "geaca", 250), (999, "blugi", 170)],
+    [(300, "topuri_corsete", 120), (850, "rochite", 150), (1450, "costume_sport", 200), (2600, "scurte_trenciuri", 250), (999, "pantaloni", 170)],
 )
 def test_price_is_nice_and_profit_in_range(uah, category, profit):
     from lcboutique.models import PROFIT_RANGES
@@ -57,33 +57,33 @@ def test_price_is_nice_and_profit_in_range(uah, category, profit):
 
 
 def test_profit_is_clamped_to_category():
-    r = calculate_price([price(400)], "body", 500, CFG)  # 300 + profit max 150
+    r = calculate_price([price(400)], "malete_body", 500, CFG)  # 300 + profit max 150
     assert r.final_lei <= 450
 
 
 def test_price_priority_prefers_drop():
-    r = calculate_price([price(600, "opt"), price(700, "drop"), price(1200, "retail")], "rochie", 150, CFG)
+    r = calculate_price([price(600, "opt"), price(700, "drop"), price(1200, "retail")], "rochite", 150, CFG)
     assert r.supplier_amount == 700
 
 
 def test_usd_price_uses_20_lei_per_dollar():
     # 20 $ × 20 + 100 = 500; profit rochie 150–200 → 650–700
-    r = calculate_price([price(20, "drop", "USD")], "rochie", 150, CFG)
+    r = calculate_price([price(20, "drop", "USD")], "rochite", 150, CFG)
     assert r.base_lei == 500
     assert 650 <= r.final_lei <= 700
     assert "$" in r.explain(CFG)
 
 
 def test_drop_wins_across_currencies():
-    r = calculate_price([price(600, "opt"), price(15, "drop", "USD")], "rochie", 150, CFG)
+    r = calculate_price([price(600, "opt"), price(15, "drop", "USD")], "rochite", 150, CFG)
     assert (r.supplier_amount, r.supplier_currency) == (15, "USD")
 
 
 def test_missing_or_unknown_currency_price():
     with pytest.raises(PricingError):
-        calculate_price([], "rochie", 150, CFG)
+        calculate_price([], "rochite", 150, CFG)
     with pytest.raises(PricingError):
-        calculate_price([price(20, currency="EUR")], "rochie", 150, CFG)
+        calculate_price([price(20, currency="EUR")], "rochite", 150, CFG)
 
 
 def test_round_nice_never_below_minimum():
@@ -136,7 +136,7 @@ def test_multiple_products_are_kept_separate():
     analysis = Analysis(
         products=[
             product(code="A1", photo_indices=[0, 1]),
-            product(code="B2", category="bluza", prices=[price(400)], profit_lei=120, photo_indices=[2, 3]),
+            product(code="B2", category="bluzite", prices=[price(400)], profit_lei=120, photo_indices=[2, 3]),
             product(code="", photo_indices=[]),
             product(code="C3", prices=[]),
         ],
@@ -154,5 +154,5 @@ def test_single_product_gets_all_media_and_sort_key():
     videos = [Media("video", "v0")]
     res = build_posts(Analysis(products=[product(photo_indices=[])], notes=""), photos, videos, CFG)
     assert res.posts[0].media == photos + videos
-    geaca = build_posts(Analysis(products=[product(category="geaca")], notes=""), photos, [], CFG).posts[0]
-    assert res.posts[0].sort_key < geaca.sort_key
+    geaca = build_posts(Analysis(products=[product(category="scurte_trenciuri")], notes=""), photos, [], CFG).posts[0]
+    assert geaca.sort_key < res.posts[0].sort_key  # ordinea topicurilor din grup

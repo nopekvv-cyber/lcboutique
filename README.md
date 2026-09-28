@@ -48,6 +48,20 @@ O rochie comodă și elegantă, cu croială dreaptă și lungime midi, potrivit�
 - Produsele postate unul după altul se adună timp de 60 s de liniște, apoi se publică **grupate pe categorii**
   (rochii cu rochii, costume cu costume, …).
 
+## Topicurile din grupul de vânzare
+
+Fiecare produs se publică în topicul lui (Rochițe, Costume, Scurte / trenciuri, Paltoane etc.).
+Telegram nu lasă botul să citească lista de topicuri, așa că îl învățați o singură dată:
+
+1. Botul trebuie să fie administrator în grupul de vânzare (cu dreptul de a posta).
+2. Intrați în fiecare topic și scrieți `/id`. Botul răspunde „✅ Aici se vor publica produsele din categoria …”.
+3. Scrieți `/topics` (oriunde) — vedeți care topicuri sunt învățate (✅/❌) și primiți o linie `TOPICS=…`.
+4. Puneți acea linie în Railway ca variabilă `TOPICS`, ca legăturile să nu se piardă la redeploy.
+
+Produsele dintr-o categorie al cărei topic nu e încă învățat se publică în General, iar confirmarea vă spune asta.
+„Haine pe loc în Chișinău” nu se alege automat (nu reiese din postarea producătorului).
+„Mărimi mari” și „Haine pentru bărbați” se aleg doar când producătorul le prezintă explicit așa.
+
 ## Calculul prețului
 
 | Categorie | Profit |
