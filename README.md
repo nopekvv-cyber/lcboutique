@@ -6,7 +6,7 @@ Botul urmărește grupul privat în care postați produsele de la producători. 
 2. preia exact codul, mărimile, materialul, compoziția, culorile, detaliile și măsurătorile;
 3. traduce descrierea din ucraineană/rusă în română, scurt și frumos;
 4. scoate datele producătorului (telefoane, conturi, adrese, manageri, depozit, prețuri);
-5. calculează prețul: `(grivne × 0,50) + 100 lei + profit`, rotunjit la un preț comercial (550, 590, 650, 680, 690…);
+5. calculează prețul: `(grivne × 0,50 sau dolari × 20) + 100 lei + profit`, rotunjit la un preț comercial (550, 590, 650, 680, 690…);
 6. publică pe canalul LC boutique pozele originale + textul, cu secțiunea de comandă la final.
 
 Nu cere confirmare. În grupul sursă primiți doar un reply scurt:
@@ -24,11 +24,7 @@ Material: tricot (95% bumbac, 5% elastan)
 Culori: negru, bej
 💰 Preț: 650 lei
 
-O rochie comodă și elegantă, potrivită pentru fiecare zi.
-
-✨ Detalii:
-• croială dreaptă
-• lungime midi
+O rochie comodă și elegantă, cu croială dreaptă și lungime midi, potrivită pentru fiecare zi.
 
 📩 Pentru comandă, trimiteți mesaj pe Instagram:
 • poza produsului
@@ -62,8 +58,9 @@ O rochie comodă și elegantă, potrivită pentru fiecare zi.
 Profitul exact din interval îl alege automat asistentul după preț, material și complexitatea modelului;
 apoi prețul se rotunjește la cel mai apropiat preț cu terminația 50, 80 sau 90, fără a ieși din interval.
 
-Dacă producătorul dă mai multe prețuri, se folosește în ordinea: **drop → opt → preț simplu → retail**
-(se poate schimba cu `PRICE_PRIORITY`). Prețurile în alte monede decât grivne nu se convertesc — primiți avertisment.
+Se folosește întotdeauna **prețul drop**; dacă producătorul nu dă preț drop, se ia prețul opt, apoi prețul simplu,
+apoi retail. Prețurile în dolari se calculează cu **1 $ = 20 lei** (`USD_TO_LEI`), apoi aceeași formulă:
+`(dolari × 20) + 100 lei + profit`. Dacă lipsește un material, culoare etc., rândul respectiv pur și simplu nu apare.
 
 ## Instalare
 

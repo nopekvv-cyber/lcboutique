@@ -37,6 +37,8 @@ def _env_list(name: str, default: str) -> list[str]:
 class PricingConfig:
     # Preț în grivne × UAH_TO_LEI
     uah_to_lei: float = 0.50
+    # Preț în dolari × USD_TO_LEI
+    usd_to_lei: float = 20.0
     # Cheltuieli fixe / transport, în lei
     shipping_lei: int = 100
     # Terminațiile „comerciale" permise (ultimele două cifre ale prețului)
@@ -53,7 +55,7 @@ class Config:
     # ID numeric (-100...) sau @numele canalului public
     target_chat_id: int | str
     report_chat_id: int
-    anthropic_model: str = "claude-opus-5"
+    anthropic_model: str = "claude-haiku-4-5"
     anthropic_effort: str = "medium"
     allowed_user_ids: frozenset[int] = frozenset()
     # Secunde de așteptare după ultima poză dintr-un album
@@ -83,7 +85,7 @@ class Config:
             source_chat_id=source,
             target_chat_id=target,
             report_chat_id=int(os.environ.get("REPORT_CHAT_ID") or source),
-            anthropic_model=os.environ.get("ANTHROPIC_MODEL") or "claude-opus-5",
+            anthropic_model=os.environ.get("ANTHROPIC_MODEL") or "claude-haiku-4-5",
             anthropic_effort=os.environ.get("ANTHROPIC_EFFORT") or "medium",
             allowed_user_ids=allowed,
             album_wait=_env_float("ALBUM_WAIT_SECONDS", 3.0),
@@ -92,6 +94,7 @@ class Config:
             confirm_in_source=_env_bool("CONFIRM_IN_SOURCE", True),
             pricing=PricingConfig(
                 uah_to_lei=_env_float("UAH_TO_LEI", 0.50),
+                usd_to_lei=_env_float("USD_TO_LEI", 20.0),
                 shipping_lei=_env_int("SHIPPING_LEI", 100),
                 nice_endings=endings,
                 price_priority=priority,

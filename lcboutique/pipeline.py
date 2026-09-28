@@ -62,10 +62,6 @@ def build_posts(
         else:
             indices = [i for i in dict.fromkeys(product.photo_indices) if 0 <= i < len(photos)]
             media = [photos[i] for i in indices]
-            if not media:
-                result.problems.append(
-                    f"{label} (cod {product.code}): nu am putut stabili ce poze îi aparțin — publicat fără poze"
-                )
 
         result.posts.append(
             ReadyPost(
@@ -75,7 +71,4 @@ def build_posts(
                 summary=f"{product.title} — cod {product.code} — {price.final_lei} lei\n{price.explain(cfg)}",
             )
         )
-
-    if analysis.notes.strip():
-        result.problems.append(f"Observație: {analysis.notes.strip()}")
     return result

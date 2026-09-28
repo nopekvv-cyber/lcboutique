@@ -63,14 +63,27 @@ def test_profit_is_clamped_to_category():
 
 def test_price_priority_prefers_drop():
     r = calculate_price([price(600, "opt"), price(700, "drop"), price(1200, "retail")], "rochie", 150, CFG)
-    assert r.supplier_uah == 700
+    assert r.supplier_amount == 700
 
 
-def test_missing_or_foreign_price():
+def test_usd_price_uses_20_lei_per_dollar():
+    # 20 $ × 20 + 100 = 500; profit rochie 150–200 → 650–700
+    r = calculate_price([price(20, "drop", "USD")], "rochie", 150, CFG)
+    assert r.base_lei == 500
+    assert 650 <= r.final_lei <= 700
+    assert "$" in r.explain(CFG)
+
+
+def test_drop_wins_across_currencies():
+    r = calculate_price([price(600, "opt"), price(15, "drop", "USD")], "rochie", 150, CFG)
+    assert (r.supplier_amount, r.supplier_currency) == (15, "USD")
+
+
+def test_missing_or_unknown_currency_price():
     with pytest.raises(PricingError):
         calculate_price([], "rochie", 150, CFG)
     with pytest.raises(PricingError):
-        calculate_price([price(20, currency="USD")], "rochie", 150, CFG)
+        calculate_price([price(20, currency="EUR")], "rochie", 150, CFG)
 
 
 def test_round_nice_never_below_minimum():
@@ -91,6 +104,11 @@ def test_post_format_order_and_order_section():
     assert text.endswith(ORDER_SECTION)
     assert "грн" not in text and "700" not in text
     assert fits_caption(text)
+
+
+def test_details_section_is_not_in_post():
+    assert "Detalii" not in format_post(product(), 650)
+    assert "croială dreaptă" not in format_post(product(), 650)
 
 
 def test_empty_fields_are_omitted():
@@ -122,7 +140,7 @@ def test_multiple_products_are_kept_separate():
             product(code="", photo_indices=[]),
             product(code="C3", prices=[]),
         ],
-        notes="",
+        notes="materialul nu este specificat",
     )
     res = build_posts(analysis, photos, [], CFG)
     assert [p.media for p in res.posts] == [photos[:2], photos[2:]]

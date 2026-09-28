@@ -71,10 +71,6 @@ def format_post(product: Product, price_lei: int) -> str:
     if description:
         lines += ["", description]
 
-    details = [_clean(d) for d in product.details if sanitize(d)]
-    if details:
-        lines += ["", "✨ Detalii:"] + [f"• {d}" for d in details]
-
     measurements = [_clean(m) for m in product.measurements if sanitize(m)]
     if measurements:
         lines += ["", "📐 Măsurători:"] + [f"• {m}" for m in measurements]

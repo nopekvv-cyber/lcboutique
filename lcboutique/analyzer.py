@@ -29,14 +29,15 @@ Reguli:
 4. `sizes`: păstrează mărimile exact ca la producător (ex. „42-44, 46-48" sau „S, M, L" sau „універсал" → „universală").
 5. Traducere naturală, nu mot-à-mot. `title`: denumire scurtă și elegantă (ex. „Rochie midi din tricot").
    `description`: 1–3 propoziții, clar, feminin, ușor de citit, potrivit pentru Telegram și Instagram,
-   fără fraze inutile și fără exagerări.
+   fără fraze inutile și fără exagerări. Menționează natural cele mai importante caracteristici
+   (croiala, lungimea, căptușeala etc.), pentru că postarea nu are o listă separată de detalii.
    `details`: detalii utile clientei (croială, lungime, căptușeală, fermoar/nasturi, buzunare, talie,
    elastic, glugă, centură, înălțimea modelului din poză etc.), fiecare ca o frază scurtă.
 6. NU include nicăieri: telefoane, adrese, conturi Telegram/Instagram, nume de manageri, informații
    despre depozit, stoc sau livrare ale producătorului, și niciun preț.
 7. `prices`: toate prețurile producătorului pentru ACEST produs, cu tipul lor
    (дроп = drop, опт/оптова = opt, роздріб/розниця/РРЦ = retail, un singur preț fără tip = unspecified)
-   și moneda (грн/₴/uah = UAH). Nu converti nimic.
+   și moneda (грн/₴/uah = UAH; $/usd/дол./долар = USD). Nu converti nimic.
 8. `profit_lei`: alege profitul LC boutique din intervalul categoriei, în funcție de prețul inițial,
    material, complexitatea modelului și aspectul produsului (mai ieftin/simplu → spre minim,
    mai scump/elaborat → spre maxim):
@@ -78,18 +79,25 @@ class Analyzer:
             }
         )
 
+        request = dict(
+            model=self.model,
+            max_tokens=16000,
+            system=SYSTEM_PROMPT,
+            output_format=Analysis,
+            messages=[{"role": "user", "content": content}],
+        )
         try:
-            response = await self.client.beta.messages.parse(
-                model=self.model,
-                max_tokens=16000,
-                system=SYSTEM_PROMPT,
-                thinking={"type": "adaptive"},
-                output_config={"effort": self.effort},
-                output_format=Analysis,
-                betas=["server-side-fallback-2026-07-01"],
-                fallbacks="default",
-                messages=[{"role": "user", "content": content}],
-            )
+            if self.model.startswith("claude-haiku"):
+                # Haiku: model rapid și ieftin, fără thinking/effort
+                response = await self.client.messages.parse(**request)
+            else:
+                response = await self.client.beta.messages.parse(
+                    **request,
+                    thinking={"type": "adaptive"},
+                    output_config={"effort": self.effort},
+                    betas=["server-side-fallback-2026-07-01"],
+                    fallbacks="default",
+                )
         except anthropic.RateLimitError as exc:
             raise AnalysisError("limita API Claude a fost atinsă, încercați din nou peste un minut") from exc
         except anthropic.APIStatusError as exc:
