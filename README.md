@@ -40,8 +40,11 @@ O rochie comodă și elegantă, potrivită pentru fiecare zi.
 
 ## Cum postați în grupul sursă
 
-- Un album (poze + text în descriere) = un produs. Puteți și redirecționa (forward) postarea producătorului.
-- Dacă trimiteți pozele și textul separat (textul imediat înainte sau după poze, în max. 25 s), botul le unește.
+- **Textul închide produsul.** Trimiteți/redirecționați toate pozele produsului (oricâte, ex. 20 = 2 albume),
+  cu descrierea pe ultimele poze sau într-un mesaj separat imediat după ele. Tot ce a venit înainte de text
+  devine un singur produs.
+- Dacă textul vine primul, pozele trimise imediat după el (în max. 25 s) se atașează lui.
+- Poze fără niciun text în 25 s: botul încearcă oricum; dacă nu găsește codul și prețul, primiți avertisment.
 - Mai multe produse (coduri diferite) în aceeași postare: botul face câte o postare separată pentru fiecare și
   împarte pozele între ele. Cel mai sigur este totuși câte un album per produs.
 - Produsele postate unul după altul se adună timp de 60 s de liniște, apoi se publică **grupate pe categorii**

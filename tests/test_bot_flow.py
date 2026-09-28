@@ -131,3 +131,53 @@ def test_text_without_photos_is_reported_not_published():
     bot = asyncio.run(run())
     assert bot.sent == []
     assert any("doar text" in r for r in bot.reports)
+
+
+def test_twenty_photos_in_two_albums_with_text_on_last():
+    async def run():
+        bot = make_bot()
+        first = [msg(i, f"a{i}", group="g1") for i in range(1, 11)]
+        second = [msg(i, f"a{i}", group="g2") for i in range(11, 21)]
+        second[-1].effective_message.caption = "K-20 сукня 800 грн"
+        await feed(bot, *first, *second)
+        await asyncio.sleep(0.6)
+        return bot
+
+    bot = asyncio.run(run())
+    assert len(bot.sent) == 1
+    assert [m.file_id for m in bot.sent[0].media] == [f"a{i}" for i in range(1, 21)]
+    assert "Cod/Model: K-20" in bot.sent[0].text
+    assert len(bot.seen) == 1 and len(bot.seen[0][1]) == 20
+
+
+def test_text_sent_right_after_albums_still_collecting():
+    async def run():
+        bot = make_bot()
+        first = [msg(i, f"a{i}", group="g1") for i in range(1, 11)]
+        second = [msg(i, f"a{i}", group="g2") for i in range(11, 21)]
+        # textul vine imediat, înainte ca albumele să se fi închis
+        await feed(bot, *first, *second, msg(21, text="T-5 сукня 800 грн"))
+        await asyncio.sleep(0.6)
+        return bot
+
+    bot = asyncio.run(run())
+    assert len(bot.sent) == 1
+    assert len(bot.sent[0].media) == 20
+    assert "Cod/Model: T-5" in bot.sent[0].text
+
+
+def test_two_products_back_to_back_stay_separate():
+    async def run():
+        bot = make_bot()
+        p1 = [msg(i, f"x{i}", group="p1") for i in range(1, 4)]
+        p1[-1].effective_message.caption = "X-1 сукня 800"
+        p2 = [msg(i, f"y{i}", group="p2") for i in range(4, 7)]
+        p2[-1].effective_message.caption = "Y-2 куртка 800"
+        await feed(bot, *p1)
+        await asyncio.sleep(0.1)
+        await feed(bot, *p2)
+        await asyncio.sleep(0.6)
+        return bot
+
+    bot = asyncio.run(run())
+    assert [[m.file_id for m in p.media] for p in bot.sent] == [["x1", "x2", "x3"], ["y4", "y5", "y6"]]

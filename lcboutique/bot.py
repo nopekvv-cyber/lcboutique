@@ -20,6 +20,7 @@ log = logging.getLogger(__name__)
 
 MAX_ALBUM = 10  # limita Telegram pentru un album
 PAUSE_BETWEEN_POSTS = 3.0  # evită limitele de trimitere ale Telegram
+MAX_PHOTOS_FOR_ANALYSIS = 30  # câte poze vede Claude (se publică oricum toate)
 
 
 @dataclass
@@ -162,24 +163,57 @@ class LCBoutiqueBot:
             await self._unit_ready(unit)
 
     async def _unit_ready(self, unit: Unit) -> None:
-        """Unește pozele fără text cu textul postat separat (înainte sau după)."""
-        if unit.has_media and unit.has_text:
-            await self._flush_pending()
-            self._process_later(unit)
-            return
+        """Adună pozele până la text: textul (descrierea) închide produsul.
 
+        Un produs poate veni ca mai multe albume/poze la rând (ex. 20 de poze = 2 albume),
+        cu descrierea pe ultimele poze sau într-un mesaj separat după ele. Dacă textul
+        vine primul, pozele trimise imediat după el se atașează lui.
+        """
         pending = self._pending
-        if pending and pending.has_media != unit.has_media:
-            # o jumătate așteaptă cealaltă jumătate: le unim
-            self._pending = None
-            self._pending_timer.cancel()
-            pending.merge(unit)
-            self._process_later(pending)
+
+        if not unit.has_text:
+            if pending and not pending.has_media:
+                # textul a venit înaintea pozelor
+                self._pending = None
+                self._pending_timer.cancel()
+                pending.merge(unit)
+                self._process_later(pending)
+                return
+            if pending:
+                pending.merge(unit)  # încă poze ale aceluiași produs
+            else:
+                self._pending = unit
+            # așteptăm textul; fiecare poză nouă prelungește așteptarea
+            self._pending_timer.start(self.cfg.pair_wait, self._flush_pending)
             return
 
-        await self._flush_pending()
-        self._pending = unit
-        self._pending_timer.start(self.cfg.pair_wait, self._flush_pending)
+        # a venit textul: luăm și albumele începute înaintea lui, care încă se adună
+        earlier = sorted(
+            (k for k, a in self._albums.items() if a.first_message_id < unit.first_message_id),
+            key=lambda k: self._albums[k].first_message_id,
+        )
+        collected: Unit | None = pending if pending and pending.has_media else None
+        if pending and not pending.has_media:
+            await self._flush_pending()  # text anterior rămas fără poze
+        self._pending = None
+        self._pending_timer.cancel()
+        for key in earlier:
+            album = self._albums.pop(key)
+            self._album_timers.pop(key).cancel()
+            if collected is None:
+                collected = album
+            else:
+                collected.merge(album)
+
+        if collected is not None:
+            collected.merge(unit)
+            self._process_later(collected)
+        elif unit.has_media:
+            self._process_later(unit)
+        else:
+            # doar text: așteptăm pozele
+            self._pending = unit
+            self._pending_timer.start(self.cfg.pair_wait, self._flush_pending)
 
     async def _flush_pending(self) -> None:
         unit, self._pending = self._pending, None
@@ -206,7 +240,7 @@ class LCBoutiqueBot:
 
     async def _process(self, unit: Unit) -> None:
         try:
-            photos_bytes = [await self._download(m.file_id) for m in unit.photos]
+            photos_bytes = [await self._download(m.file_id) for m in unit.photos[:MAX_PHOTOS_FOR_ANALYSIS]]
             analysis = await self.analyzer.analyze("\n\n".join(unit.texts), photos_bytes)
             result = build_posts(analysis, unit.photos, unit.videos, self.cfg.pricing)
             for post in result.posts:
