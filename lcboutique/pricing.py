@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 
 from .config import PricingConfig
@@ -94,3 +95,28 @@ def calculate_price(
         profit_lei=round(final - base),
         final_lei=final,
     )
+
+
+_NUM = r"(\d{1,3}(?:[ \u00a0]\d{3})+|\d+(?:[.,]\d+)?)"
+_CUR = r"(грн\.?|гр\.?|₴|uah|\$|usd|у\.?\s?[еe]\.?|дол\w*)"
+_DROP = r"(?:дроп\w*|drop\w*)"
+# „Дроп: 650 грн", „дроп - 25$", „ціна дроп 650" / „650 грн дроп", „$25 drop"
+_AFTER = re.compile(rf"{_DROP}[^\d\n$]{{0,25}}(\$)?\s*{_NUM}\s*{_CUR}?", re.I)
+_BEFORE = re.compile(rf"(\$)?\s*{_NUM}\s*{_CUR}?\s*[-–—:=]?\s*{_DROP}", re.I)
+_USD = re.compile(r"\$|usd|у\.?\s?[еe]\.?|дол", re.I)
+
+
+def find_drop_price(text: str) -> tuple[float, str] | None:
+    """Prețul drop scris clar în text (sumă + monedă), dacă e unul singur; altfel None."""
+    found: set[tuple[float, str]] = set()
+    for line in text.splitlines():
+        for rx in (_AFTER, _BEFORE):
+            for m in rx.finditer(line):
+                dollar, number, cur = m.groups()
+                amount = float(re.sub(r"[ \u00a0]", "", number).replace(",", "."))
+                usd = bool(dollar) or bool(cur and _USD.search(cur)) or (not cur and "$" in line)
+                currency = "USD" if usd else "UAH"
+                # ignorăm numere care nu pot fi prețuri (ex. „дроп від 1 шт")
+                if amount >= (5 if usd else 100):
+                    found.add((amount, currency))
+    return found.pop() if len(found) == 1 else None

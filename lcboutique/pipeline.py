@@ -6,8 +6,8 @@ from dataclasses import dataclass, field
 
 from .config import PricingConfig
 from .formatter import format_post
-from .models import CATEGORY_ORDER, Analysis
-from .pricing import PricingError, calculate_price
+from .models import CATEGORY_ORDER, Analysis, SupplierPrice
+from .pricing import PricingError, calculate_price, find_drop_price
 
 
 @dataclass(frozen=True)
@@ -38,24 +38,29 @@ class BuildResult:
 
 
 def build_posts(
-    analysis: Analysis, photos: list[Media], videos: list[Media], cfg: PricingConfig
+    analysis: Analysis, photos: list[Media], videos: list[Media], cfg: PricingConfig, source_text: str = ""
 ) -> BuildResult:
-    """Transformă analiza lui Claude în postări; produsele cu probleme sunt raportate, nu publicate."""
+    """Transformă analiza lui Claude în postări; produsele fără preț sunt raportate, nu publicate."""
     result = BuildResult()
     products = analysis.products
     if not products:
         result.problems.append("nu am identificat niciun produs în postare")
     single = len(products) == 1
 
+    # un singur produs: prețul drop scris clar în text are prioritate (verificare fără AI)
+    drop = find_drop_price(source_text) if single else None
+    if drop:
+        amount, currency = drop
+        products[0].prices = [SupplierPrice(kind="drop", amount=amount, currency=currency)]
+
     for product in products:
         label = product.title or product.category
-        if not product.code.strip():
-            result.problems.append(f"{label}: lipsește codul produsului — nu am publicat")
-            continue
+        if product.code.strip():
+            label += f" (cod {product.code})"
         try:
             price = calculate_price(product.prices, product.category, product.profit_lei, cfg)
         except PricingError as exc:
-            result.problems.append(f"{label} (cod {product.code}): {exc} — nu am publicat")
+            result.problems.append(f"{label}: {exc} — nu am publicat")
             continue
 
         if single:
@@ -69,7 +74,7 @@ def build_posts(
                 category=product.category,
                 text=format_post(product, price.final_lei),
                 media=media,
-                summary=f"{product.title} — cod {product.code} — {price.final_lei} lei\n{price.explain(cfg)}",
+                summary=f"{product.title} — cod {product.code or '—'} — {price.final_lei} lei\n{price.explain(cfg)}",
             )
         )
     return result

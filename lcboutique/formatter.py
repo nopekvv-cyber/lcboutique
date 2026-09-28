@@ -53,7 +53,8 @@ def format_post(product: Product, price_lei: int) -> str:
     """Postarea în format HTML pentru Telegram."""
     lines = [f"<b>{_clean(product.title)}</b>", ""]
 
-    lines.append(f"Cod/Model: {html.escape(product.code.strip())}")
+    if product.code.strip():
+        lines.append(f"Cod/Model: {html.escape(product.code.strip())}")
     if product.sizes.strip():
         lines.append(f"Mărimi: {html.escape(product.sizes.strip())}")
     material = sanitize(product.material)

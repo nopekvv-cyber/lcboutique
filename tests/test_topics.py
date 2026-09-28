@@ -17,6 +17,29 @@ def test_match_topic_names_with_emoji_and_diacritics():
     assert match_topic("Discuții") is None
 
 
+def test_match_topic_renamed_or_short_names():
+    assert match_topic("Maieuri 🎽") == "maiouri"
+    assert match_topic("Scurte/Trenciuri") == "scurte_trenciuri"
+    assert match_topic("Geci") == "scurte_trenciuri"
+    assert match_topic("trenciuri") == "scurte_trenciuri"
+
+
+def test_assign_moves_topic_to_the_right_category(tmp_path):
+    store = TopicStore(tmp_path / "t.json")
+    store.learn("Rochii", 5)  # topic creat cu alt nume, apoi redenumit
+    store.assign("scurte_trenciuri", 5)
+    assert store.thread_for("scurte_trenciuri") == 5
+    assert 5 not in [t for k, t in store.threads.items() if k != "scurte_trenciuri"]
+
+
+def test_topics_survive_via_bot_description():
+    from lcboutique.topics import decode, encode
+
+    threads = {"rochite": 12, "maiouri": 88, "scurte_trenciuri": 3}
+    assert decode(encode(threads)) == threads
+    assert len(encode({k: 99999 for k in __import__("lcboutique.models").models.TOPICS})) <= 512
+
+
 def test_parse_env_accepts_keys_and_names():
     assert parse_env("rochite=12;Costume sport=15; Plajă = 40") == {"rochite": 12, "costume_sport": 15, "plaja": 40}
 
@@ -64,3 +87,21 @@ def test_post_goes_to_its_topic(tmp_path):
     asyncio.run(LCBoutiqueBot._send_post(bot, post))
     assert calls[0]["message_thread_id"] == 33
     assert calls[1]["message_thread_id"] is None  # topic neînvățat → General
+
+
+def test_topic_command_assigns_current_topic(tmp_path):
+    cfg = Config(telegram_token="1:a", source_chat_id=-1, target_chat_id=-2, report_chat_id=-1, data_dir=str(tmp_path))
+    bot = LCBoutiqueBot(cfg)
+    replies = []
+
+    async def persist():
+        replies.append("saved")
+
+    async def reply_text(text, **kw):
+        replies.append(text)
+
+    bot._persist_topics = persist
+    msg = SimpleNamespace(text="/topic Maiouri", is_topic_message=True, message_thread_id=41, reply_text=reply_text)
+    asyncio.run(bot.on_topic(SimpleNamespace(effective_message=msg), None))
+    assert bot.topics.thread_for("maiouri") == 41
+    assert replies[-1] == "✅ Aici se publică: Maiouri"

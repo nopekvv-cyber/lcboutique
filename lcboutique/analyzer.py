@@ -23,11 +23,16 @@ Reguli:
 1. Identifică fiecare produs distinct. Dacă postarea conține mai multe produse (coduri diferite),
    returnează câte un element pentru fiecare și nu amesteca datele între ele. Variantele de culoare
    ale aceluiași cod sunt UN singur produs cu mai multe culori.
-2. `code`: codul/modelul/articolul EXACT, copiat caracter cu caracter (arт./модель/код). Nu îl traduce,
-   nu îl modifica. Dacă nu există cod, lasă gol.
-3. Nu inventa nimic. Mărimi, culori, materiale, compoziție, măsurători: doar ce scrie producătorul
-   (sau se vede fără dubiu în text). Ce nu e specificat rămâne gol. Poți folosi pozele doar pentru a
-   înțelege tipul produsului și croiala, nu pentru a ghici materialul sau mărimile.
+2. `code`: codul/modelul/articolul EXACT, copiat caracter cu caracter. Poate apărea în multe forme:
+   „арт. 1234", „артикул: K-15", „модель 520", „код 77", „№ 305", „#2231", „Art. 45", sau doar un număr/
+   cuvânt de cod la începutul textului (ex. „1452 🔥"). Nu îl traduce, nu îl modifica. Nu confunda codul
+   cu prețul, mărimile sau telefonul. Dacă nu există niciun cod, lasă gol (produsul se publică oricum).
+3. Cele mai importante sunt: TIPUL hainei, CULORILE și PREȚUL. Verifică-le de două ori.
+   - Culorile: toate culorile/variantele din text, traduse în română (чорний → negru, молочний → lapte,
+     бежевий → bej, мокко → mocca, хакі → kaki etc.). Dacă textul nu spune culorile, scrie culorile
+     care se văd clar în poze.
+   - Tipul: uită-te la poze și la text; alege categoria și denumirea după haina principală.
+   Mărimi, materiale, compoziție, măsurători: doar ce scrie producătorul; ce nu e specificat rămâne gol.
 4. `sizes`: păstrează mărimile exact ca la producător (ex. „42-44, 46-48" sau „S, M, L" sau „універсал" → „universală").
 5. Traducere naturală, nu mot-à-mot. `title`: denumire scurtă și elegantă (ex. „Rochie midi din tricot").
    `description`: 1–3 propoziții, clar, feminin, ușor de citit, potrivit pentru Telegram și Instagram,
@@ -38,8 +43,10 @@ Reguli:
 6. NU include nicăieri: telefoane, adrese, conturi Telegram/Instagram, nume de manageri, informații
    despre depozit, stoc sau livrare ale producătorului, și niciun preț.
 7. `prices`: toate prețurile producătorului pentru ACEST produs, cu tipul lor
-   (дроп = drop, опт/оптова = opt, роздріб/розниця/РРЦ = retail, un singur preț fără tip = unspecified)
-   și moneda (грн/₴/uah = UAH; $/usd/дол./долар = USD). Nu converti nimic.
+   (дроп/drop = drop, опт/оптова/гурт = opt, роздріб/розниця/РРЦ/ціна для клієнта = retail,
+   un singur preț fără tip = unspecified) și moneda (грн/гр/₴/uah = UAH; $/usd/у.е./дол./долар = USD).
+   Copiază suma exact (ex. „1 250 грн" → 1250). Nu converti nimic. Nu lua drept preț mărimile,
+   măsurătorile, cantitatea minimă sau numărul de telefon. Cel mai important este prețul DROP.
 8. `profit_lei`: alege profitul LC boutique din intervalul categoriei, în funcție de prețul inițial,
    material, complexitatea modelului și aspectul produsului (mai ieftin/simplu → spre minim,
    mai scump/elaborat → spre maxim):
@@ -48,9 +55,11 @@ Reguli:
    - rochii de zi cu zi → rochite; rochii de seară/ocazie/evening → rochii_elegante;
    - costume (sacou/bluză + pantaloni/fustă, compleuri) → costume; costume sportive/trening → costume_sport;
      costume office/cu sacou clasic → costume_clasice; costume din tricot → costume_tricotate;
-   - geci, scurte, trenciuri, bomber, puf → scurte_trenciuri; paltoane → paltoane; veste → jalete;
+   - geci, scurte, trenciuri, pardesie, bomber, geci de puf, vindjacke (куртка, пуховик, тренч, плащ,
+     вітровка, бомбер) → scurte_trenciuri; paltoane (пальто) → paltoane; veste (жилет) → jalete;
    - blugi și pantaloni → pantaloni; fuste și șorți → fustite_sorti; pulovere/hanorace → pulovere;
-   - malete (longsleeve), body → malete_body; topuri, corsete → topuri_corsete; maiouri → maiouri;
+   - malete (longsleeve, лонгслів), body → malete_body; topuri, corsete → topuri_corsete;
+     maiouri, tricouri fără mânecă, maiouri cu bretele (майка) → maiouri;
    - bluze → bluzite; cămăși → camasi; costume de baie/plajă → plaja; salopete → salopete;
    - marimi_mari DOAR dacă producătorul prezintă produsul explicit ca mărimi mari/plus size (батал);
    - barbati DOAR pentru haine bărbătești.

@@ -143,10 +143,12 @@ def test_multiple_products_are_kept_separate():
         notes="materialul nu este specificat",
     )
     res = build_posts(analysis, photos, [], CFG)
-    assert [p.media for p in res.posts] == [photos[:2], photos[2:]]
+    assert [p.media for p in res.posts[:2]] == [photos[:2], photos[2:]]
     assert "Cod/Model: A1" in res.posts[0].text and "B2" not in res.posts[0].text
     assert "Cod/Model: B2" in res.posts[1].text
-    assert len(res.problems) == 2  # fără cod + fără preț → raportate, nepublicate
+    assert len(res.posts) == 3  # fără cod → se publică oricum, fără rândul „Cod/Model"
+    assert "Cod/Model" not in res.posts[2].text
+    assert len(res.problems) == 1  # fără preț → raportat, nepublicat
 
 
 def test_single_product_gets_all_media_and_sort_key():
@@ -156,3 +158,16 @@ def test_single_product_gets_all_media_and_sort_key():
     assert res.posts[0].media == photos + videos
     geaca = build_posts(Analysis(products=[product(category="scurte_trenciuri")], notes=""), photos, [], CFG).posts[0]
     assert geaca.sort_key < res.posts[0].sort_key  # ordinea topicurilor din grup
+
+
+def test_drop_price_from_text_overrides_ai_for_single_product():
+    analysis = Analysis(products=[product(prices=[price(500, "opt")])], notes="")
+    text = "Сукня 1452\nОпт 500 грн\nДроп 700 грн"
+    res = build_posts(analysis, [Media("photo", "p")], [], CFG, text)
+    assert "700 грн (drop)" in res.posts[0].summary
+
+
+def test_drop_price_in_dollars_from_text():
+    analysis = Analysis(products=[product(prices=[])], notes="")
+    res = build_posts(analysis, [Media("photo", "p")], [], CFG, "Дроп 25$")
+    assert "25 $ (drop) × 20" in res.posts[0].summary

@@ -17,7 +17,7 @@ from .config import Config
 from .formatter import fits_caption
 from .models import TOPICS
 from .pipeline import Media, ReadyPost, build_posts
-from .topics import TopicStore
+from .topics import TopicStore, decode, encode, match_topic
 
 log = logging.getLogger(__name__)
 
@@ -90,13 +90,16 @@ class LCBoutiqueBot:
         self.cfg = cfg
         self.analyzer = Analyzer(cfg.anthropic_model, cfg.anthropic_effort)
         self.topics = TopicStore(Path(cfg.data_dir) / "topics.json", cfg.topics)
-        self.app = Application.builder().token(cfg.telegram_token).build()
+        self.app = Application.builder().token(cfg.telegram_token).post_init(self._load_saved_topics).build()
         # /id în orice grup, canal sau topic: botul răspunde cu ID-ul (pentru configurare)
         self.app.add_handler(
             MessageHandler(filters.Regex(r"^/id(@\w+)?\s*$") & ~filters.UpdateType.EDITED, self.on_id)
         )
         self.app.add_handler(
             MessageHandler(filters.Regex(r"^/topics(@\w+)?\s*$") & ~filters.UpdateType.EDITED, self.on_topics)
+        )
+        self.app.add_handler(
+            MessageHandler(filters.Regex(r"^/topic(@\w+)?(\s+.*)?$") & ~filters.UpdateType.EDITED, self.on_topic)
         )
         if cfg.target_chat_id:
             target = cfg.target_chat_id
@@ -151,34 +154,73 @@ class LCBoutiqueBot:
         if msg.is_topic_message and msg.message_thread_id:
             name = _topic_name(msg)
             key = self.topics.learn(name, msg.message_thread_id) if name else None
-            text += f"\n\nTopic: {name or '?'} (nr. <code>{msg.message_thread_id}</code>)"
+            await self._persist_topics()
+            text += f"\n\nTopic nr. <code>{msg.message_thread_id}</code>"
             if key:
-                text += f"\n✅ Aici se vor publica produsele din categoria „{TOPICS[key]}”."
+                text += f"\n✅ Aici se publică: <b>{TOPICS[key]}</b>"
+                text += "\nDacă nu e corect, scrieți aici: <code>/topic Numele categoriei</code>"
             else:
-                text += "\n⚠️ Nu recunosc acest topic ca una dintre categoriile LC boutique."
+                text += (
+                    f"\n⚠️ Nu recunosc numele topicului ({name or 'necunoscut'})."
+                    "\nScrieți aici, de exemplu: <code>/topic Maiouri</code>"
+                )
         if chat.type == "channel":
             text += "\n\n(Acest mesaj și /id pot fi șterse din canal.)"
         await msg.reply_text(text, parse_mode=ParseMode.HTML)
+
+    async def on_topic(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """/topic Maiouri — scris într-un topic: aici se publică produsele din categoria dată."""
+        msg = update.effective_message
+        if msg is None:
+            return
+        if not (msg.is_topic_message and msg.message_thread_id):
+            await msg.reply_text("Scrieți comanda în interiorul topicului, ex.: /topic Maiouri")
+            return
+        name = (msg.text or "").split(maxsplit=1)[1] if len((msg.text or "").split()) > 1 else ""
+        key = match_topic(name) if name else None
+        if not key:
+            options = "\n".join(f"• {n}" for n in TOPICS.values())
+            await msg.reply_text(f"Nu recunosc categoria „{name}”. Categorii posibile:\n{options}")
+            return
+        self.topics.assign(key, msg.message_thread_id)
+        await self._persist_topics()
+        await msg.reply_text(f"✅ Aici se publică: {TOPICS[key]}")
 
     async def on_topics(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         msg = update.effective_message
         if msg is None:
             return
-        text = "Topicuri învățate:\n" + self.topics.status()
-        line = self.topics.env_line()
-        if line:
-            text += (
-                "\n\nCa să nu se piardă la redeploy, puneți în Railway variabila TOPICS cu valoarea:\n"
-                f"<code>{line}</code>"
-            )
-        await msg.reply_text(text, parse_mode=ParseMode.HTML)
+        await msg.reply_text(
+            "Topicuri învățate (✅) și lipsă (❌):\n"
+            + self.topics.status()
+            + "\n\nPentru ❌: scrieți /id în topicul respectiv (sau /topic Nume)."
+        )
 
     async def on_target_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         msg = update.effective_message
         if msg and msg.is_topic_message and msg.message_thread_id:
+            # doar topicurile încă necunoscute (nu suprascriem ce a fost setat cu /topic)
+            if msg.message_thread_id in self.topics.threads.values():
+                return
             name = _topic_name(msg)
-            if name:
-                self.topics.learn(name, msg.message_thread_id)
+            if name and self.topics.learn(name, msg.message_thread_id):
+                await self._persist_topics()
+
+    async def _load_saved_topics(self, app: Application) -> None:
+        try:
+            saved = decode((await app.bot.get_my_description()).description)
+        except TelegramError:
+            log.exception("Nu am putut citi topicurile salvate")
+            return
+        self.topics.merge_saved(saved)
+        log.info("Topicuri cunoscute: %d din %d", len(self.topics.threads), len(TOPICS))
+
+    async def _persist_topics(self) -> None:
+        """Salvează topicurile în descrierea botului, ca să rămână și după redeploy."""
+        try:
+            await self.app.bot.set_my_description(encode(self.topics.threads))
+        except TelegramError:
+            log.exception("Nu am putut salva topicurile în Telegram")
 
     async def on_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         msg = update.effective_message
@@ -288,8 +330,9 @@ class LCBoutiqueBot:
             photos_bytes = [
                 await self._download(m.preview_id or m.file_id) for m in unit.photos[:MAX_PHOTOS_FOR_ANALYSIS]
             ]
-            analysis = await self.analyzer.analyze("\n\n".join(unit.texts), photos_bytes)
-            result = build_posts(analysis, unit.photos, unit.videos, self.cfg.pricing)
+            text = "\n\n".join(unit.texts)
+            analysis = await self.analyzer.analyze(text, photos_bytes)
+            result = build_posts(analysis, unit.photos, unit.videos, self.cfg.pricing, text)
             for post in result.posts:
                 post.source_chat_id = unit.chat_id
                 post.source_message_id = unit.first_message_id
