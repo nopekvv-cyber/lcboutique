@@ -83,15 +83,20 @@ class LCBoutiqueBot:
         self.cfg = cfg
         self.analyzer = Analyzer(cfg.anthropic_model, cfg.anthropic_effort)
         self.app = Application.builder().token(cfg.telegram_token).build()
+        # /id în orice grup sau canal: botul răspunde cu ID-ul chatului (pentru configurare)
         self.app.add_handler(
-            MessageHandler(
-                filters.Chat(cfg.source_chat_id)
-                & ~filters.UpdateType.EDITED
-                & (filters.PHOTO | filters.VIDEO | filters.TEXT)
-                & ~filters.COMMAND,
-                self.on_message,
-            )
+            MessageHandler(filters.Regex(r"^/id(@\w+)?\s*$") & ~filters.UpdateType.EDITED, self.on_id)
         )
+        if cfg.is_configured:
+            self.app.add_handler(
+                MessageHandler(
+                    filters.Chat(cfg.source_chat_id)
+                    & ~filters.UpdateType.EDITED
+                    & (filters.PHOTO | filters.VIDEO | filters.TEXT)
+                    & ~filters.COMMAND,
+                    self.on_message,
+                )
+            )
         self.app.add_error_handler(self.on_error)
 
         self._albums: dict[str, Unit] = {}
@@ -107,10 +112,27 @@ class LCBoutiqueBot:
         self._tasks: set[asyncio.Task] = set()
 
     def run(self) -> None:
-        log.info("LC boutique bot pornit. Sursă: %s → canal: %s", self.cfg.source_chat_id, self.cfg.target_chat_id)
+        if self.cfg.is_configured:
+            log.info("LC boutique bot pornit. Sursă: %s → canal: %s", self.cfg.source_chat_id, self.cfg.target_chat_id)
+        else:
+            log.warning(
+                "SOURCE_CHAT_ID / TARGET_CHAT_ID nu sunt setate. Botul răspunde doar la /id: "
+                "scrieți /id în grupul sursă și în canal, apoi completați variabilele."
+            )
         self.app.run_polling(allowed_updates=["message", "channel_post"])
 
     # ---------- primirea mesajelor ----------
+
+    async def on_id(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        chat = update.effective_chat
+        msg = update.effective_message
+        if chat is None or msg is None:
+            return
+        log.info("/id în %r (%s): %s", chat.title, chat.type, chat.id)
+        text = f"ID-ul acestui chat ({chat.title or chat.type}):\n<code>{chat.id}</code>"
+        if chat.type == "channel":
+            text += "\n\n(Acest mesaj și /id pot fi șterse din canal.)"
+        await msg.reply_text(text, parse_mode=ParseMode.HTML)
 
     async def on_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         msg = update.effective_message

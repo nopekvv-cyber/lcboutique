@@ -68,8 +68,9 @@ Dacă producătorul dă mai multe prețuri, se folosește în ordinea: **drop �
    Apoi `/setprivacy` → alegeți botul → **Disable** (ca să vadă toate mesajele din grup).
 2. Adăugați botul în **grupul sursă** și în **canalul LC boutique** ca administrator
    (în canal cu dreptul „Post messages").
-3. **ID-urile**: redirecționați un mesaj din grup și unul din canal către [@userinfobot](https://t.me/userinfobot)
-   (sau @RawDataBot); ID-urile arată ca `-100…`.
+3. **ID-urile**: porniți botul întâi doar cu `TELEGRAM_BOT_TOKEN` și `ANTHROPIC_API_KEY`. Scrieți `/id` în grupul
+   sursă și în canal — botul răspunde cu ID-ul (ex. `-1001234567890`). Pentru un canal public puteți pune
+   și direct `@numele_canalului` la `TARGET_CHAT_ID`.
 4. **Cheia Claude**: [console.anthropic.com](https://console.anthropic.com) → API Keys.
 5. Copiați `.env.example` în `.env` și completați valorile.
 6. Porniți botul pe un server care rulează permanent (VPS, Railway, Render, Fly.io etc.):

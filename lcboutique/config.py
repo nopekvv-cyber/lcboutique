@@ -48,8 +48,10 @@ class PricingConfig:
 @dataclass(frozen=True)
 class Config:
     telegram_token: str
+    # 0 = încă nesetat (botul pornește doar cu comanda /id, pentru aflarea ID-urilor)
     source_chat_id: int
-    target_chat_id: int
+    # ID numeric (-100...) sau @numele canalului public
+    target_chat_id: int | str
     report_chat_id: int
     anthropic_model: str = "claude-opus-5"
     anthropic_effort: str = "medium"
@@ -64,16 +66,22 @@ class Config:
     confirm_in_source: bool = True
     pricing: PricingConfig = field(default_factory=PricingConfig)
 
+    @property
+    def is_configured(self) -> bool:
+        return bool(self.source_chat_id) and bool(self.target_chat_id)
+
     @classmethod
     def from_env(cls) -> "Config":
-        source = int(_env("SOURCE_CHAT_ID"))
+        source = int(os.environ.get("SOURCE_CHAT_ID") or 0)
+        target_raw = (os.environ.get("TARGET_CHAT_ID") or "0").strip()
+        target: int | str = target_raw if target_raw.startswith("@") else int(target_raw)
         endings = tuple(int(x) for x in _env_list("PRICE_ENDINGS", "50,80,90"))
         priority = tuple(_env_list("PRICE_PRIORITY", "drop,opt,unspecified,retail"))
         allowed = frozenset(int(x) for x in _env_list("ALLOWED_USER_IDS", ""))
         return cls(
             telegram_token=_env("TELEGRAM_BOT_TOKEN"),
             source_chat_id=source,
-            target_chat_id=int(_env("TARGET_CHAT_ID")),
+            target_chat_id=target,
             report_chat_id=int(os.environ.get("REPORT_CHAT_ID") or source),
             anthropic_model=os.environ.get("ANTHROPIC_MODEL") or "claude-opus-5",
             anthropic_effort=os.environ.get("ANTHROPIC_EFFORT") or "medium",
