@@ -60,7 +60,9 @@ class Config:
     allowed_user_ids: frozenset[int] = frozenset()
     # Secunde de așteptare după ultima poză dintr-un album
     album_wait: float = 3.0
-    # Secunde în care un text și pozele postate separat sunt unite în același produs
+    # Cât așteaptă pozele (oricâte albume) textul care închide produsul
+    photos_wait: float = 180.0
+    # Cât așteaptă un text trimis ÎNAINTEA pozelor ca pozele să vină
     pair_wait: float = 25.0
     # Secunde de liniște în grup după care produsele adunate sunt publicate
     # (sortate pe categorii). 0 = publicare imediată.
@@ -89,6 +91,7 @@ class Config:
             anthropic_effort=os.environ.get("ANTHROPIC_EFFORT") or "medium",
             allowed_user_ids=allowed,
             album_wait=_env_float("ALBUM_WAIT_SECONDS", 3.0),
+            photos_wait=_env_float("PHOTOS_WAIT_SECONDS", 180.0),
             pair_wait=_env_float("PAIR_WAIT_SECONDS", 25.0),
             publish_delay=_env_float("PUBLISH_DELAY_SECONDS", 60.0),
             confirm_in_source=_env_bool("CONFIRM_IN_SOURCE", True),

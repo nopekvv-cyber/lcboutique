@@ -36,11 +36,12 @@ O rochie comodă și elegantă, cu croială dreaptă și lungime midi, potrivit�
 
 ## Cum postați în grupul sursă
 
-- **Textul închide produsul.** Trimiteți/redirecționați toate pozele produsului (oricâte, ex. 20 = 2 albume),
-  cu descrierea pe ultimele poze sau într-un mesaj separat imediat după ele. Tot ce a venit înainte de text
-  devine un singur produs.
+- **Poze + text = un produs.** Trimiteți/redirecționați oricâte albume de poze, apoi textul — pe ultimele poze
+  sau ca mesaj separat. Tot ce a venit înainte de text devine un singur produs. Botul așteaptă textul până la
+  3 minute de la ultima poză (`PHOTOS_WAIT_SECONDS`).
 - Dacă textul vine primul, pozele trimise imediat după el (în max. 25 s) se atașează lui.
-- Poze fără niciun text în 25 s: botul încearcă oricum; dacă nu găsește codul și prețul, primiți avertisment.
+- Pe canal se publică toate pozele (câte 10 într-un album, limita Telegram), cu descrierea pe primul album.
+  Pentru analiză asistentul vede primele 20 de poze, la rezoluție redusă (mai ieftin).
 - Mai multe produse (coduri diferite) în aceeași postare: botul face câte o postare separată pentru fiecare și
   împarte pozele între ele. Cel mai sigur este totuși câte un album per produs.
 - Produsele postate unul după altul se adună timp de 60 s de liniște, apoi se publică **grupate pe categorii**

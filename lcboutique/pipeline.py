@@ -13,7 +13,8 @@ from .pricing import PricingError, calculate_price
 @dataclass(frozen=True)
 class Media:
     kind: str  # "photo" sau "video"
-    file_id: str
+    file_id: str  # cea mai mare rezoluție, pentru publicare
+    preview_id: str = ""  # o variantă mai mică a pozei, pentru analiză (mai ieftin)
 
 
 @dataclass

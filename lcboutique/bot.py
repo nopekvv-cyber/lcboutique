@@ -20,7 +20,8 @@ log = logging.getLogger(__name__)
 
 MAX_ALBUM = 10  # limita Telegram pentru un album
 PAUSE_BETWEEN_POSTS = 3.0  # evită limitele de trimitere ale Telegram
-MAX_PHOTOS_FOR_ANALYSIS = 30  # câte poze vede Claude (se publică oricum toate)
+MAX_PHOTOS_FOR_ANALYSIS = 20  # câte poze vede Claude (se publică oricum toate)
+PREVIEW_MAX_SIDE = 800  # rezoluția pozelor trimise la analiză (mai mică = mai ieftin)
 
 
 @dataclass
@@ -43,7 +44,9 @@ class Unit:
 
     def add_message(self, msg: Message) -> None:
         if msg.photo:
-            self.photos.append(Media("photo", msg.photo[-1].file_id))
+            small = [p for p in msg.photo if max(getattr(p, "width", 0), getattr(p, "height", 0)) <= PREVIEW_MAX_SIDE]
+            preview = (small[-1] if small else msg.photo[-1]).file_id
+            self.photos.append(Media("photo", msg.photo[-1].file_id, preview))
         elif msg.video:
             self.videos.append(Media("video", msg.video.file_id))
         text = msg.caption or msg.text
@@ -184,7 +187,7 @@ class LCBoutiqueBot:
             else:
                 self._pending = unit
             # așteptăm textul; fiecare poză nouă prelungește așteptarea
-            self._pending_timer.start(self.cfg.pair_wait, self._flush_pending)
+            self._pending_timer.start(self.cfg.photos_wait, self._flush_pending)
             return
 
         # a venit textul: luăm și albumele începute înaintea lui, care încă se adună
@@ -240,7 +243,9 @@ class LCBoutiqueBot:
 
     async def _process(self, unit: Unit) -> None:
         try:
-            photos_bytes = [await self._download(m.file_id) for m in unit.photos[:MAX_PHOTOS_FOR_ANALYSIS]]
+            photos_bytes = [
+                await self._download(m.preview_id or m.file_id) for m in unit.photos[:MAX_PHOTOS_FOR_ANALYSIS]
+            ]
             analysis = await self.analyzer.analyze("\n\n".join(unit.texts), photos_bytes)
             result = build_posts(analysis, unit.photos, unit.videos, self.cfg.pricing)
             for post in result.posts:
@@ -295,6 +300,8 @@ class LCBoutiqueBot:
         caption_on_media = fits_caption(post.text)
         chunks = [post.media[i : i + MAX_ALBUM] for i in range(0, len(post.media), MAX_ALBUM)]
         for n, chunk in enumerate(chunks):
+            if n:
+                await asyncio.sleep(PAUSE_BETWEEN_POSTS)  # multe albume la rând: evităm limitele Telegram
             items = []
             for i, m in enumerate(chunk):
                 caption = post.text if (caption_on_media and n == 0 and i == 0) else None
@@ -322,7 +329,7 @@ class LCBoutiqueBot:
         log.error("Eroare Telegram", exc_info=context.error)
 
 
-async def _retry(send, attempts: int = 3):
+async def _retry(send, attempts: int = 5):
     for attempt in range(attempts):
         try:
             return await send()

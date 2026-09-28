@@ -13,16 +13,17 @@ SOURCE = -100
 
 
 def make_bot(**overrides):
-    cfg = Config(
+    settings = dict(
         telegram_token="123:abc",
         source_chat_id=SOURCE,
         target_chat_id=-200,
         report_chat_id=SOURCE,
         album_wait=0.05,
+        photos_wait=0.2,
         pair_wait=0.2,
         publish_delay=0.1,
-        **overrides,
     )
+    cfg = Config(**{**settings, **overrides})
     bot = LCBoutiqueBot(cfg)
     bot.sent, bot.reports, bot.seen = [], [], []
 
@@ -181,3 +182,36 @@ def test_two_products_back_to_back_stay_separate():
 
     bot = asyncio.run(run())
     assert [[m.file_id for m in p.media] for p in bot.sent] == [["x1", "x2", "x3"], ["y4", "y5", "y6"]]
+
+
+def test_many_albums_then_text_as_separate_message():
+    async def run():
+        bot = make_bot(photos_wait=1.0)
+        n = 0
+        for album in range(5):  # 5 albume × 10 poze, redirecționate pe rând
+            await feed(bot, *[msg(n + i, f"p{n + i}", group=f"g{album}") for i in range(10)])
+            n += 10
+            await asyncio.sleep(0.1)
+        await feed(bot, msg(100, text="M-50 сукня 800 грн"))
+        await asyncio.sleep(0.6)
+        return bot
+
+    bot = asyncio.run(run())
+    assert len(bot.sent) == 1
+    assert [m.file_id for m in bot.sent[0].media] == [f"p{i}" for i in range(50)]
+    assert "Cod/Model: M-50" in bot.sent[0].text
+    assert len(bot.seen[0][1]) == 20  # la analiză merg maxim 20 de poze
+
+
+def test_analysis_uses_smaller_photo_size():
+    from lcboutique.bot import Unit
+
+    m = msg(1, "x").effective_message
+    m.photo = [
+        SimpleNamespace(file_id="s", width=320, height=240),
+        SimpleNamespace(file_id="m", width=800, height=600),
+        SimpleNamespace(file_id="l", width=1280, height=960),
+    ]
+    unit = Unit(SOURCE, 1)
+    unit.add_message(m)
+    assert (unit.photos[0].file_id, unit.photos[0].preview_id) == ("l", "m")
