@@ -71,9 +71,11 @@ def test_post_goes_to_its_topic(tmp_path):
     class FakeBot:
         async def send_media_group(self, chat, items, **kw):
             calls.append(kw)
+            return [SimpleNamespace(message_id=1, media_group_id="g") for _ in items]
 
         async def send_photo(self, chat, photo, **kw):
             calls.append(kw)
+            return SimpleNamespace(message_id=2, media_group_id=None)
 
     cfg = Config(
         telegram_token="1:a", source_chat_id=-1, target_chat_id=-2, report_chat_id=-1,

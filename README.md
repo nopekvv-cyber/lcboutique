@@ -16,23 +16,22 @@ Dacă lipsește codul sau prețul, produsul **nu** se publică și primiți un a
 ## Exemplu de postare
 
 ```
-Rochie midi din tricot
+Costum din tricot
 
-Cod/Model: R-1452
+Cod/Model: 1390
 Mărimi: 42-44, 46-48
-Material: tricot (95% bumbac, 5% elastan)
-Culori: negru, bej
-💰 Preț: 650 lei
+Material: tricot turcesc
+Culori: marsala, negru, roșu, roz
+💰 Preț: 980 lei
 
-O rochie comodă și elegantă, cu croială dreaptă și lungime midi, potrivită pentru fiecare zi.
-
-📩 Pentru comandă, trimiteți mesaj pe Instagram:
-• poza produsului
-• codul exact al produsului
-• mărimea
-• culoarea
-• numărul de telefon
+📩 Comandă pe Instagram: poza, codul, mărimea, culoarea și nr. de telefon
 ```
+
+## Schimbarea prețului
+
+- **Din grupul privat:** răspundeți (Reply) la confirmarea ✅ a botului cu `/pret 750`.
+- **Din grupul de vânzare:** răspundeți la postare (la textul cu prețul) cu `/pret 750`. Merge doar pentru
+  administratori; comanda se șterge imediat, clientele nu o văd.
 
 ## Cum postați în grupul sursă
 

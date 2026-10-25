@@ -100,7 +100,9 @@ def test_post_format_order_and_order_section():
     body = "\n".join(lines)
     assert body.index("Cod/Model: R-1452") < body.index("Mărimi:") < body.index("Material:")
     assert body.index("Material: tricot (95% bumbac, 5% elastan)") < body.index("Culori: negru, bej")
-    assert body.index("Culori:") < body.index("💰 Preț: 650 lei") < body.index("O rochie comodă")
+    assert body.index("Culori:") < body.index("💰 Preț: 650 lei")
+    assert "O rochie comodă" not in text  # fără descriere
+    assert text.count("\n") <= 9  # postare compactă
     assert text.endswith(ORDER_SECTION)
     assert "грн" not in text and "700" not in text
     assert fits_caption(text)

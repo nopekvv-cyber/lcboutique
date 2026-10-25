@@ -5,7 +5,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from lcboutique.bot import LCBoutiqueBot
+from lcboutique.bot import LCBoutiqueBot, Published
 from lcboutique.config import Config
 from lcboutique.models import Analysis, Product, SupplierPrice
 
@@ -48,6 +48,7 @@ def make_bot(**overrides):
 
     async def send_post(post):
         bot.sent.append(post)
+        return Published(1000 + len(bot.sent), post.text, is_caption=True)
 
     async def report(chat_id, reply_to, text):
         bot.reports.append(text)
@@ -234,9 +235,11 @@ def test_photos_first_text_on_last_album(monkeypatch):
     class FakeBot:
         async def send_media_group(self, chat, items, **kw):
             calls.append([item.caption for item in items])
+            return [SimpleNamespace(message_id=len(calls) * 10 + i, media_group_id=f"g{len(calls)}") for i in range(len(items))]
 
         async def send_message(self, chat, text, **kw):
             calls.append(["TEXT"])
+            return SimpleNamespace(message_id=999)
 
     bot = make_bot()
     bot.app = SimpleNamespace(bot=FakeBot())
@@ -245,3 +248,6 @@ def test_photos_first_text_on_last_album(monkeypatch):
     assert len(calls) == 3
     assert all(c is None for c in calls[0] + calls[1])  # primele albume fără text
     assert calls[2][0] == "<b>Rochie</b>" and all(c is None for c in calls[2][1:])  # textul pe ultimul album
+    published = asyncio.run(LCBoutiqueBot._send_post(bot, post))
+    assert published.is_caption and published.message_id == 60  # primul mesaj din ultimul album
+    assert published.media_group_ids == ("g4", "g5", "g6")

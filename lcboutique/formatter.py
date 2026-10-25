@@ -7,14 +7,7 @@ import re
 
 from .models import Product
 
-ORDER_SECTION = (
-    "📩 Pentru comandă, trimiteți mesaj pe Instagram:\n"
-    "• poza produsului\n"
-    "• codul exact al produsului\n"
-    "• mărimea\n"
-    "• culoarea\n"
-    "• numărul de telefon"
-)
+ORDER_SECTION = "📩 Comandă pe Instagram: poza, codul, mărimea, culoarea și nr. de telefon"
 
 # Limita Telegram pentru textul de sub poze.
 CAPTION_LIMIT = 1024
@@ -68,10 +61,6 @@ def format_post(product: Product, price_lei: int) -> str:
         lines.append(f"Culori: {html.escape(', '.join(colors))}")
     lines.append(f"💰 Preț: {price_lei} lei")
 
-    description = _clean(product.description)
-    if description:
-        lines += ["", description]
-
     measurements = [_clean(m) for m in product.measurements if sanitize(m)]
     if measurements:
         lines += ["", "📐 Măsurători:"] + [f"• {m}" for m in measurements]
@@ -87,3 +76,13 @@ def visible_length(html_text: str) -> int:
 
 def fits_caption(html_text: str) -> bool:
     return visible_length(html_text) <= CAPTION_LIMIT
+
+
+_PRICE_LINE = re.compile(r"(💰\s*Preț:\s*)\d+(?:[ \u00a0]\d{3})*(\s*lei)")
+
+
+def set_price(html_text: str, price_lei: int) -> str | None:
+    """Același text cu prețul schimbat; None dacă textul nu are rândul de preț."""
+    if not _PRICE_LINE.search(html_text):
+        return None
+    return _PRICE_LINE.sub(lambda m: f"{m.group(1)}{price_lei}{m.group(2)}", html_text, count=1)
