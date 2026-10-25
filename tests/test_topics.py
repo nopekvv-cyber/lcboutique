@@ -84,9 +84,9 @@ def test_post_goes_to_its_topic(tmp_path):
     bot = LCBoutiqueBot(cfg)
     bot.app = SimpleNamespace(bot=FakeBot())
     post = ReadyPost(category="paltoane", text="x", media=[Media("photo", "a"), Media("photo", "b")], summary="")
-    asyncio.run(LCBoutiqueBot._send_post(bot, post))
+    asyncio.run(bot._send(post.text, post.media, post.category))
     post = ReadyPost(category="rochite", text="x", media=[Media("photo", "a")], summary="")
-    asyncio.run(LCBoutiqueBot._send_post(bot, post))
+    asyncio.run(bot._send(post.text, post.media, post.category))
     assert calls[0]["message_thread_id"] == 33
     assert calls[1]["message_thread_id"] is None  # topic neînvățat → General
 

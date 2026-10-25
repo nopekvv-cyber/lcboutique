@@ -33,6 +33,13 @@ def _env_list(name: str, default: str) -> list[str]:
     return [item.strip().lower() for item in raw.split(",") if item.strip()]
 
 
+def _public_url() -> str:
+    url = os.environ.get("PUBLIC_URL", "").strip()
+    if not url and os.environ.get("RAILWAY_PUBLIC_DOMAIN"):
+        url = "https://" + os.environ["RAILWAY_PUBLIC_DOMAIN"].strip()
+    return url.rstrip("/")
+
+
 @dataclass(frozen=True)
 class PricingConfig:
     # Preț în grivne × UAH_TO_LEI
@@ -72,6 +79,9 @@ class Config:
     data_dir: str = "data"
     # Legăturile categorie=topic salvate permanent (generate de comanda /topics)
     topics: str = ""
+    # Mini-aplicația: portul serverului web și adresa publică https (Railway → Generate Domain)
+    webapp_port: int = 8080
+    public_url: str = ""
     pricing: PricingConfig = field(default_factory=PricingConfig)
 
     @property
@@ -101,6 +111,8 @@ class Config:
             confirm_in_source=_env_bool("CONFIRM_IN_SOURCE", True),
             data_dir=os.environ.get("DATA_DIR") or "data",
             topics=os.environ.get("TOPICS", ""),
+            webapp_port=_env_int("PORT", 8080),
+            public_url=_public_url(),
             pricing=PricingConfig(
                 uah_to_lei=_env_float("UAH_TO_LEI", 0.50),
                 usd_to_lei=_env_float("USD_TO_LEI", 20.0),

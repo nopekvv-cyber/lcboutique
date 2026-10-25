@@ -1,0 +1,301 @@
+<!doctype html>
+<html lang="ro">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>LC boutique · Editare</title>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<style>
+  :root {
+    --bg: var(--tg-theme-bg-color, #ffffff);
+    --bg2: var(--tg-theme-secondary-bg-color, #f2f2f7);
+    --text: var(--tg-theme-text-color, #111111);
+    --hint: var(--tg-theme-hint-color, #8e8e93);
+    --accent: var(--tg-theme-button-color, #c0507a);
+    --accent-text: var(--tg-theme-button-text-color, #ffffff);
+    --danger: var(--tg-theme-destructive-text-color, #d93025);
+    --line: color-mix(in srgb, var(--hint) 25%, transparent);
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: var(--bg2); color: var(--text);
+    font: 16px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+  header { position: sticky; top: 0; z-index: 5; background: var(--bg2); padding: 12px 16px 8px; }
+  .tabs { display: flex; gap: 6px; background: var(--bg); border-radius: 12px; padding: 4px; }
+  .tabs button { flex: 1; border: 0; background: none; color: var(--text); padding: 8px; border-radius: 9px; font: inherit; }
+  .tabs button.on { background: var(--accent); color: var(--accent-text); font-weight: 600; }
+  .filters { display: flex; gap: 8px; margin-top: 8px; }
+  input, select, textarea { width: 100%; font: inherit; color: var(--text); background: var(--bg);
+    border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; }
+  textarea { resize: vertical; min-height: 70px; }
+  .filters select { max-width: 42%; }
+  main { padding: 4px 16px 32px; }
+  .card { display: flex; gap: 12px; align-items: center; background: var(--bg); border-radius: 14px;
+    padding: 10px; margin-top: 8px; cursor: pointer; }
+  .thumb { width: 64px; height: 64px; border-radius: 10px; object-fit: cover; background: var(--line); flex: none; }
+  .card .info { min-width: 0; flex: 1; }
+  .title { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .sub { color: var(--hint); font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .price { font-weight: 700; white-space: nowrap; }
+  .panel { background: var(--bg); border-radius: 14px; padding: 14px; margin-top: 8px; }
+  label { display: block; font-size: 13px; color: var(--hint); margin: 12px 0 4px; }
+  label:first-child { margin-top: 0; }
+  .row { display: flex; gap: 8px; }
+  .row > div { flex: 1; }
+  .btn { display: block; width: 100%; border: 0; border-radius: 12px; padding: 13px; font: inherit;
+    font-weight: 600; margin-top: 10px; background: var(--accent); color: var(--accent-text); }
+  .btn.ghost { background: var(--bg); color: var(--accent); }
+  .btn.danger { background: var(--bg); color: var(--danger); }
+  .btn:disabled { opacity: .5; }
+  .back { border: 0; background: none; color: var(--accent); font: inherit; padding: 8px 0; }
+  .hero { width: 100%; max-height: 300px; object-fit: contain; border-radius: 12px; background: var(--line); }
+  .note { color: var(--hint); font-size: 13px; margin-top: 6px; }
+  .empty { text-align: center; color: var(--hint); padding: 40px 0; }
+  .toast { position: fixed; left: 16px; right: 16px; bottom: 20px; background: var(--text); color: var(--bg);
+    padding: 12px 14px; border-radius: 12px; text-align: center; opacity: 0; transition: opacity .2s; pointer-events: none; }
+  .toast.on { opacity: .92; }
+  .hidden { display: none !important; }
+  a { color: var(--accent); }
+</style>
+</head>
+<body>
+<header>
+  <div class="tabs">
+    <button id="tab-posts" class="on">Postări</button>
+    <button id="tab-settings">Setări</button>
+  </div>
+  <div class="filters" id="filters">
+    <input id="search" type="search" placeholder="Caută cod sau nume…" autocomplete="off">
+    <select id="topic-filter"><option value="">Toate topicurile</option></select>
+  </div>
+</header>
+
+<main>
+  <section id="list"></section>
+  <button id="more" class="btn ghost hidden">Mai multe</button>
+
+  <section id="editor" class="hidden">
+    <button class="back" id="back">‹ Înapoi la listă</button>
+    <img id="e-photo" class="hero" alt="">
+    <div class="panel">
+      <label for="e-title">Denumire</label><input id="e-title">
+      <div class="row">
+        <div><label for="e-code">Cod/Model</label><input id="e-code"></div>
+        <div><label for="e-price">Preț (lei)</label><input id="e-price" type="number" inputmode="numeric" min="1"></div>
+      </div>
+      <label for="e-sizes">Mărimi</label><input id="e-sizes">
+      <label for="e-material">Material</label><input id="e-material">
+      <label for="e-composition">Compoziție</label><input id="e-composition">
+      <label for="e-colors">Culori (separate prin virgulă)</label><input id="e-colors">
+      <label for="e-measurements">Măsurători (câte una pe rând)</label><textarea id="e-measurements"></textarea>
+      <label for="e-category">Topic</label><select id="e-category"></select>
+      <div class="note" id="e-calc"></div>
+    </div>
+    <button class="btn" id="save">Salvează</button>
+    <a class="btn ghost" id="open-post" target="_blank" style="text-align:center;text-decoration:none">Vezi postarea</a>
+    <button class="btn danger" id="delete">Șterge postarea</button>
+  </section>
+
+  <section id="settings" class="hidden">
+    <div class="panel">
+      <label for="s-uah">1 grivnă = … lei</label><input id="s-uah" type="number" step="0.01" inputmode="decimal">
+      <label for="s-usd">1 dolar = … lei</label><input id="s-usd" type="number" step="0.1" inputmode="decimal">
+      <label for="s-ship">Transport / cheltuieli (lei)</label><input id="s-ship" type="number" inputmode="numeric">
+      <div class="note">Se aplică produselor publicate de acum înainte. Postările existente nu se schimbă.</div>
+    </div>
+    <button class="btn" id="save-settings">Salvează setările</button>
+    <div class="panel" id="topics-status"></div>
+  </section>
+</main>
+<div class="toast" id="toast"></div>
+
+<script>
+const tg = window.Telegram && window.Telegram.WebApp;
+if (tg) { tg.ready(); tg.expand(); }
+const $ = (id) => document.getElementById(id);
+const state = { topics: [], posts: [], offset: 0, current: null, photoUrls: {} };
+
+function toast(text) {
+  const t = $("toast"); t.textContent = text; t.classList.add("on");
+  clearTimeout(toast.timer); toast.timer = setTimeout(() => t.classList.remove("on"), 2600);
+}
+
+async function api(path, options = {}) {
+  const res = await fetch(path, {
+    ...options,
+    headers: { "Content-Type": "application/json", "X-Init-Data": tg ? tg.initData : "", ...(options.headers || {}) },
+  });
+  if (!res.ok) {
+    let msg = "Eroare " + res.status;
+    try { msg = (await res.json()).error || msg; } catch (e) {}
+    throw new Error(msg);
+  }
+  return res;
+}
+
+async function photoUrl(id) {
+  if (state.photoUrls[id] !== undefined) return state.photoUrls[id];
+  try {
+    const blob = await (await api(`/api/posts/${id}/photo`)).blob();
+    state.photoUrls[id] = URL.createObjectURL(blob);
+  } catch (e) { state.photoUrls[id] = ""; }
+  return state.photoUrls[id];
+}
+
+function show(view) {
+  $("list").classList.toggle("hidden", view !== "list");
+  $("more").classList.toggle("hidden", view !== "list" || state.posts.length % 50 !== 0 || !state.posts.length);
+  $("filters").classList.toggle("hidden", view !== "list");
+  $("editor").classList.toggle("hidden", view !== "editor");
+  $("settings").classList.toggle("hidden", view !== "settings");
+  $("tab-posts").classList.toggle("on", view !== "settings");
+  $("tab-settings").classList.toggle("on", view === "settings");
+  window.scrollTo(0, 0);
+  if (tg) {
+    if (view === "editor") tg.BackButton.show(); else tg.BackButton.hide();
+  }
+}
+
+function card(post) {
+  const el = document.createElement("div");
+  el.className = "card";
+  el.innerHTML = `<img class="thumb" alt=""><div class="info"><div class="title"></div><div class="sub"></div></div><div class="price"></div>`;
+  el.querySelector(".title").textContent = post.title || "(fără titlu)";
+  el.querySelector(".sub").textContent = [post.code && "Cod " + post.code, post.topic].filter(Boolean).join(" · ");
+  el.querySelector(".price").textContent = post.price_lei + " lei";
+  photoUrl(post.id).then((url) => { if (url) el.querySelector("img").src = url; });
+  el.onclick = () => openEditor(post.id);
+  return el;
+}
+
+async function loadPosts(append = false) {
+  if (!append) state.offset = 0;
+  const params = new URLSearchParams({ q: $("search").value, category: $("topic-filter").value, offset: state.offset });
+  try {
+    const posts = await (await api("/api/posts?" + params)).json();
+    state.posts = append ? state.posts.concat(posts) : posts;
+    const list = $("list");
+    if (!append) list.innerHTML = "";
+    posts.forEach((p) => list.appendChild(card(p)));
+    if (!state.posts.length) list.innerHTML = `<div class="empty">Nicio postare încă.<br>Postările publicate de bot apar aici.</div>`;
+    show("list");
+  } catch (e) {
+    $("list").innerHTML = `<div class="empty"></div>`;
+    $("list").firstChild.textContent = e.message;
+  }
+}
+
+async function openEditor(id) {
+  try {
+    const post = await (await api(`/api/posts/${id}`)).json();
+    state.current = post;
+    const p = post.product;
+    $("e-title").value = p.title || "";
+    $("e-code").value = p.code || "";
+    $("e-price").value = post.price_lei;
+    $("e-sizes").value = p.sizes || "";
+    $("e-material").value = p.material || "";
+    $("e-composition").value = p.composition || "";
+    $("e-colors").value = (p.colors || []).join(", ");
+    $("e-measurements").value = (p.measurements || []).join("\n");
+    $("e-category").value = post.category;
+    $("e-calc").textContent = post.calc ? "Calcul inițial: " + post.calc : "";
+    $("open-post").href = post.link;
+    $("e-photo").removeAttribute("src");
+    photoUrl(id).then((url) => { if (url) $("e-photo").src = url; });
+    show("editor");
+  } catch (e) { toast(e.message); }
+}
+
+async function save() {
+  const post = state.current;
+  const body = {
+    title: $("e-title").value, code: $("e-code").value, price_lei: parseInt($("e-price").value, 10),
+    sizes: $("e-sizes").value, material: $("e-material").value, composition: $("e-composition").value,
+    colors: $("e-colors").value.split(","), measurements: $("e-measurements").value.split("\n"),
+    category: $("e-category").value,
+  };
+  const moving = body.category !== post.category;
+  $("save").disabled = true;
+  try {
+    await api(`/api/posts/${post.id}`, { method: "PUT", body: JSON.stringify(body) });
+    if (tg) tg.HapticFeedback.notificationOccurred("success");
+    toast(moving ? "Postarea a fost mutată în topicul nou ✅" : "Salvat ✅");
+    await loadPosts();
+  } catch (e) { toast(e.message); }
+  finally { $("save").disabled = false; }
+}
+
+function confirmAsk(text) {
+  return new Promise((resolve) => tg && tg.showConfirm ? tg.showConfirm(text, resolve) : resolve(confirm(text)));
+}
+
+async function remove() {
+  if (!(await confirmAsk("Ștergeți postarea din grup? Nu se poate anula."))) return;
+  try {
+    await api(`/api/posts/${state.current.id}`, { method: "DELETE" });
+    toast("Postarea a fost ștearsă");
+    await loadPosts();
+  } catch (e) { toast(e.message); }
+}
+
+function fillSettings(meta) {
+  $("s-uah").value = meta.settings.uah_to_lei;
+  $("s-usd").value = meta.settings.usd_to_lei;
+  $("s-ship").value = meta.settings.shipping_lei;
+  const missing = meta.topics.filter((t) => !t.learned).map((t) => t.name);
+  $("topics-status").innerHTML = "";
+  const title = document.createElement("div");
+  title.className = "title";
+  title.textContent = missing.length ? "Topicuri neînvățate (scrieți /id în ele):" : "Toate topicurile sunt învățate ✅";
+  $("topics-status").appendChild(title);
+  if (missing.length) {
+    const sub = document.createElement("div");
+    sub.className = "note"; sub.textContent = missing.join(", ");
+    $("topics-status").appendChild(sub);
+  }
+}
+
+async function saveSettings() {
+  const body = { uah_to_lei: $("s-uah").value, usd_to_lei: $("s-usd").value, shipping_lei: $("s-ship").value };
+  try {
+    fillSettings(await (await api("/api/settings", { method: "PUT", body: JSON.stringify(body) })).json());
+    toast("Setări salvate ✅");
+  } catch (e) { toast(e.message); }
+}
+
+async function init() {
+  if (!tg || !tg.initData) {
+    $("list").innerHTML = `<div class="empty">Deschideți această pagină din Telegram,<br>din chatul cu botul LC boutique.</div>`;
+    $("filters").classList.add("hidden");
+    return;
+  }
+  try {
+    const meta = await (await api("/api/meta")).json();
+    state.topics = meta.topics;
+    for (const t of meta.topics) {
+      $("topic-filter").add(new Option(t.name, t.key));
+      $("e-category").add(new Option(t.name, t.key));
+    }
+    fillSettings(meta);
+  } catch (e) {
+    $("list").innerHTML = `<div class="empty"></div>`; $("list").firstChild.textContent = e.message;
+    return;
+  }
+  await loadPosts();
+}
+
+let searchTimer;
+$("search").oninput = () => { clearTimeout(searchTimer); searchTimer = setTimeout(() => loadPosts(), 300); };
+$("topic-filter").onchange = () => loadPosts();
+$("more").onclick = () => { state.offset += 50; loadPosts(true); };
+$("back").onclick = () => show("list");
+$("save").onclick = save;
+$("delete").onclick = remove;
+$("save-settings").onclick = saveSettings;
+$("tab-posts").onclick = () => show("list");
+$("tab-settings").onclick = () => show("settings");
+if (tg) tg.BackButton.onClick(() => show("list"));
+init();
+</script>
+</body>
+</html>

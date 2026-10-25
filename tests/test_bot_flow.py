@@ -5,7 +5,9 @@ from types import SimpleNamespace
 
 import pytest
 
-from lcboutique.bot import LCBoutiqueBot, Published
+import tempfile
+
+from lcboutique.bot import LCBoutiqueBot, Sent
 from lcboutique.config import Config
 from lcboutique.models import Analysis, Product, SupplierPrice
 
@@ -22,6 +24,7 @@ def make_bot(**overrides):
         photos_wait=0.2,
         pair_wait=0.2,
         publish_delay=0.1,
+        data_dir=tempfile.mkdtemp(),
     )
     cfg = Config(**{**settings, **overrides})
     bot = LCBoutiqueBot(cfg)
@@ -46,16 +49,16 @@ def make_bot(**overrides):
             notes="",
         )
 
-    async def send_post(post):
-        bot.sent.append(post)
-        return Published(1000 + len(bot.sent), post.text, is_caption=True)
+    async def send(text, media, category):
+        bot.sent.append(SimpleNamespace(text=text, media=media, category=category))
+        return Sent(1000 + len(bot.sent), True, [1000 + len(bot.sent)])
 
     async def report(chat_id, reply_to, text):
         bot.reports.append(text)
 
     bot._download = download
     bot.analyzer.analyze = analyze
-    bot._send_post = send_post
+    bot._send = send
     bot._report = report
     return bot
 
@@ -244,10 +247,10 @@ def test_photos_first_text_on_last_album(monkeypatch):
     bot = make_bot()
     bot.app = SimpleNamespace(bot=FakeBot())
     post = ReadyPost(category="rochite", text="<b>Rochie</b>", media=[Media("photo", f"p{i}") for i in range(21)], summary="")
-    asyncio.run(LCBoutiqueBot._send_post(bot, post))
+    asyncio.run(LCBoutiqueBot._send(bot, post.text, post.media, post.category))
     assert len(calls) == 3
     assert all(c is None for c in calls[0] + calls[1])  # primele albume fără text
     assert calls[2][0] == "<b>Rochie</b>" and all(c is None for c in calls[2][1:])  # textul pe ultimul album
-    published = asyncio.run(LCBoutiqueBot._send_post(bot, post))
-    assert published.is_caption and published.message_id == 60  # primul mesaj din ultimul album
-    assert published.media_group_ids == ("g4", "g5", "g6")
+    sent = asyncio.run(LCBoutiqueBot._send(bot, post.text, post.media, post.category))
+    assert sent.is_caption and sent.text_message_id == 60  # primul mesaj din ultimul album
+    assert sent.media_group_ids == ["g4", "g5", "g6"] and len(sent.message_ids) == 21

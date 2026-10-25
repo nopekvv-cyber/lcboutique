@@ -5,19 +5,31 @@ from __future__ import annotations
 import asyncio
 import logging
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 
-from telegram import InputMediaPhoto, InputMediaVideo, Message, ReplyParameters, Update
+from telegram import (
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
+    InputMediaPhoto,
+    InputMediaVideo,
+    MenuButtonWebApp,
+    Message,
+    ReplyParameters,
+    Update,
+    WebAppInfo,
+)
 from telegram.constants import ParseMode
-from telegram.error import RetryAfter, TelegramError
+from telegram.error import BadRequest, RetryAfter, TelegramError
 from telegram.ext import Application, ContextTypes, MessageHandler, filters
 
 from .analyzer import AnalysisError, Analyzer
-from .config import Config
-from .formatter import fits_caption, set_price
-from .models import TOPICS
+from .config import Config, PricingConfig
+from .formatter import fits_caption, format_post, set_price
+from .models import TOPICS, Product
 from .pipeline import Media, ReadyPost, build_posts
+from .storage import Post as StoredPost
+from .storage import Storage, new_post
 from .topics import TopicStore, decode, encode, match_topic
 
 log = logging.getLogger(__name__)
@@ -31,13 +43,14 @@ PREVIEW_MAX_SIDE = 800  # rezoluția pozelor trimise la analiză (mai mică = ma
 
 
 @dataclass
-class Published:
-    """O postare publicată de bot: mesajul care conține textul (cu prețul)."""
+class Sent:
+    """Rezultatul publicării: mesajele trimise în grupul de vânzare."""
 
-    message_id: int
-    html: str
+    text_message_id: int  # mesajul care conține textul (cu prețul)
     is_caption: bool  # textul e sub poze (caption) sau mesaj separat
-    media_group_ids: tuple[str, ...] = ()
+    message_ids: list[int] = field(default_factory=list)
+    media_group_ids: list[str] = field(default_factory=list)
+    thread_id: int | None = None
 
 
 @dataclass
@@ -103,7 +116,8 @@ class LCBoutiqueBot:
         self.cfg = cfg
         self.analyzer = Analyzer(cfg.anthropic_model, cfg.anthropic_effort)
         self.topics = TopicStore(Path(cfg.data_dir) / "topics.json", cfg.topics)
-        self.app = Application.builder().token(cfg.telegram_token).post_init(self._load_saved_topics).build()
+        self.storage = Storage(Path(cfg.data_dir) / "lcboutique.db")
+        self.app = Application.builder().token(cfg.telegram_token).post_init(self._on_startup).post_shutdown(self._on_shutdown).build()
         # /id în orice grup, canal sau topic: botul răspunde cu ID-ul (pentru configurare)
         self.app.add_handler(
             MessageHandler(filters.Regex(r"^/id(@\w+)?\s*$") & ~filters.UpdateType.EDITED, self.on_id)
@@ -113,6 +127,10 @@ class LCBoutiqueBot:
         )
         self.app.add_handler(
             MessageHandler(filters.Regex(r"^/topic(@\w+)?(\s+.*)?$") & ~filters.UpdateType.EDITED, self.on_topic)
+        )
+        # /start, /app: butonul care deschide mini-aplicația de editare
+        self.app.add_handler(
+            MessageHandler(filters.Regex(r"^/(start|app|editare)(@\w+)?(\s.*)?$") & ~filters.UpdateType.EDITED, self.on_app)
         )
         # /pret 750 ca răspuns la o postare (sau la confirmarea ✅): schimbă prețul postării
         self.app.add_handler(
@@ -148,8 +166,19 @@ class LCBoutiqueBot:
         self._in_flight = 0
         self._publish_lock = asyncio.Lock()
         self._tasks: set[asyncio.Task] = set()
-        # postările publicate (după id-ul mesajului cu text), pentru /pret
-        self._published: dict[int, Published] = {}
+
+    EDITABLE_SETTINGS = ("uah_to_lei", "usd_to_lei", "shipping_lei")
+
+    @property
+    def pricing(self) -> PricingConfig:
+        """Setările de preț: cele din Railway, suprascrise de cele salvate din mini-aplicație."""
+        saved = self.storage.get_settings()
+        changes = {}
+        for key in self.EDITABLE_SETTINGS:
+            if key in saved:
+                value = float(saved[key])
+                changes[key] = int(value) if key == "shipping_lei" else value
+        return replace(self.cfg.pricing, **changes)
 
     def run(self) -> None:
         if self.cfg.is_configured:
@@ -224,6 +253,54 @@ class LCBoutiqueBot:
             name = _topic_name(msg)
             if name and self.topics.learn(name, msg.message_thread_id):
                 await self._persist_topics()
+
+    async def _on_startup(self, app: Application) -> None:
+        await self._load_saved_topics(app)
+        from .webapp import start_webapp
+
+        try:
+            self._web_runner = await start_webapp(self, self.cfg.webapp_port)
+        except OSError:
+            log.exception("Mini-aplicația nu a putut porni pe portul %s", self.cfg.webapp_port)
+        if self.cfg.public_url:
+            try:
+                await app.bot.set_chat_menu_button(
+                    menu_button=MenuButtonWebApp("📝 Editare", WebAppInfo(self.cfg.public_url))
+                )
+            except TelegramError:
+                log.exception("Nu am putut seta butonul mini-aplicației")
+        else:
+            log.warning("PUBLIC_URL lipsește: generați un domeniu în Railway ca să meargă mini-aplicația.")
+
+    async def _on_shutdown(self, app: Application) -> None:
+        runner = getattr(self, "_web_runner", None)
+        if runner:
+            await runner.cleanup()
+
+    async def on_app(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        msg = update.effective_message
+        chat = update.effective_chat
+        if msg is None or chat is None:
+            return
+        if chat.type != "private" and not (msg.text or "").startswith(("/app", "/editare")):
+            return  # /start în grupuri nu ne privește
+        if not self.cfg.public_url:
+            await msg.reply_text(
+                "Mini-aplicația nu e activă încă: în Railway → Settings → Networking apăsați „Generate Domain”."
+            )
+            return
+        if chat.type == "private":
+            if not (msg.from_user and await self.user_can_edit(msg.from_user.id)):
+                await msg.reply_text("Bună! Acesta este asistentul LC boutique.")
+                return
+            button = InlineKeyboardButton("📝 Deschide editarea", web_app=WebAppInfo(self.cfg.public_url))
+        else:
+            # în grupuri Telegram nu permite butoane de mini-aplicație: trimitem spre chatul privat
+            button = InlineKeyboardButton("📝 Deschide editarea", url=f"https://t.me/{self.app.bot.username}?start=app")
+        await msg.reply_text(
+            "Aici puteți edita postările publicate: titlu, cod, mărimi, material, culori, preț, topic.",
+            reply_markup=InlineKeyboardMarkup([[button]]),
+        )
 
     async def _load_saved_topics(self, app: Application) -> None:
         try:
@@ -351,7 +428,7 @@ class LCBoutiqueBot:
             ]
             text = "\n\n".join(unit.texts)
             analysis = await self.analyzer.analyze(text, photos_bytes)
-            result = build_posts(analysis, unit.photos, unit.videos, self.cfg.pricing, text)
+            result = build_posts(analysis, unit.photos, unit.videos, self.pricing, text)
             for post in result.posts:
                 post.source_chat_id = unit.chat_id
                 post.source_message_id = unit.first_message_id
@@ -386,20 +463,20 @@ class LCBoutiqueBot:
             # gruparea pe categorii (sortare stabilă: ordinea din grup se păstrează)
             for post in sorted(batch, key=lambda p: p.sort_key):
                 try:
-                    published = await self._send_post(post)
-                    self._remember(published)
+                    sent = await self._send(post.text, post.media, post.category)
+                    stored = self._store(post, sent)
                     if self.cfg.confirm_in_source:
                         topic = TOPICS.get(post.category, post.category)
                         where = (
                             f"în topicul „{topic}”"
-                            if self.topics.thread_for(post.category)
+                            if sent.thread_id
                             else f"în General (topicul „{topic}” nu e învățat — scrieți /id în el)"
                         )
-                        link = self._post_link(published.message_id)
                         await self._report(
                             post.source_chat_id,
                             post.source_message_id,
-                            f"✅ Publicat {where}: {post.summary}\n{link}\n"
+                            f"✅ Publicat {where} (nr. {stored.id if stored else '—'}): {post.summary}\n"
+                            f"{self._post_link(sent.text_message_id)}\n"
                             "Alt preț? Răspundeți la acest mesaj cu: /pret 750",
                         )
                 except TelegramError as exc:
@@ -407,25 +484,44 @@ class LCBoutiqueBot:
                     await self._report(post.source_chat_id, post.source_message_id, f"❌ Publicarea a eșuat: {exc}")
                 await asyncio.sleep(PAUSE_BETWEEN_POSTS)
 
-    async def _send_post(self, post: ReadyPost) -> Published:
+    def _store(self, post: ReadyPost, sent: Sent) -> StoredPost | None:
+        if post.product is None:
+            return None
+        return self.storage.add_post(
+            new_post(
+                category=post.category,
+                product=post.product.model_dump(),
+                price_lei=post.price_lei,
+                text_message_id=sent.text_message_id,
+                is_caption=sent.is_caption,
+                message_ids=sent.message_ids,
+                media_group_ids=sent.media_group_ids,
+                media=[m.__dict__ for m in post.media],
+                thread_id=sent.thread_id,
+                calc=post.calc,
+            )
+        )
+
+    async def _send(self, text: str, media: list[Media], category: str) -> Sent:
+        """Publică textul și pozele în topicul categoriei: întâi pozele, textul la final."""
         bot = self.app.bot
         chat = self.cfg.target_chat_id
-        topic = {"message_thread_id": self.topics.thread_for(post.category)}
-        if not post.media:
-            sent = await _retry(lambda: bot.send_message(chat, post.text, parse_mode=ParseMode.HTML, **topic))
-            return Published(sent.message_id, post.text, is_caption=False)
+        thread_id = self.topics.thread_for(category)
+        topic = {"message_thread_id": thread_id}
+        if not media:
+            msg = await _retry(lambda: bot.send_message(chat, text, parse_mode=ParseMode.HTML, **topic))
+            return Sent(msg.message_id, False, [msg.message_id], [], thread_id)
 
-        caption_on_media = fits_caption(post.text)
-        chunks = split_albums(post.media)
-        group_ids: list[str] = []
-        caption_message_id = 0
+        caption_on_media = fits_caption(text)
+        chunks = split_albums(media)
+        result = Sent(0, caption_on_media, thread_id=thread_id)
         for n, chunk in enumerate(chunks):
             if n:
                 await asyncio.sleep(PAUSE_BETWEEN_POSTS)  # multe albume la rând: evităm limitele Telegram
             items = []
             for i, m in enumerate(chunk):
                 # textul la final: pe ultimul album (Telegram îl afișează sub album)
-                caption = post.text if (caption_on_media and n == len(chunks) - 1 and i == 0) else None
+                caption = text if (caption_on_media and n == len(chunks) - 1 and i == 0) else None
                 cls = InputMediaPhoto if m.kind == "photo" else InputMediaVideo
                 items.append(cls(m.file_id, caption=caption, parse_mode=ParseMode.HTML if caption else None))
             if len(items) == 1:
@@ -434,18 +530,14 @@ class LCBoutiqueBot:
                 sent = [await _retry(lambda: send(chat, one.media, caption=one.caption, parse_mode=one.parse_mode, **topic))]
             else:
                 sent = list(await _retry(lambda: bot.send_media_group(chat, items, **topic)))
-            group_ids += [m.media_group_id for m in sent[:1] if getattr(m, "media_group_id", None)]
-            caption_message_id = sent[0].message_id
+            result.message_ids += [m.message_id for m in sent]
+            result.media_group_ids += [m.media_group_id for m in sent[:1] if getattr(m, "media_group_id", None)]
+            result.text_message_id = sent[0].message_id
         if not caption_on_media:
-            sent = await _retry(lambda: bot.send_message(chat, post.text, parse_mode=ParseMode.HTML, **topic))
-            return Published(sent.message_id, post.text, is_caption=False, media_group_ids=tuple(group_ids))
-        return Published(caption_message_id, post.text, is_caption=True, media_group_ids=tuple(group_ids))
-
-    def _remember(self, published: Published) -> None:
-        self._published[published.message_id] = published
-        if len(self._published) > 5000:  # păstrăm doar cele mai recente
-            for key in list(self._published)[:1000]:
-                del self._published[key]
+            msg = await _retry(lambda: bot.send_message(chat, text, parse_mode=ParseMode.HTML, **topic))
+            result.text_message_id = msg.message_id
+            result.message_ids.append(msg.message_id)
+        return result
 
     def _post_link(self, message_id: int) -> str:
         chat = self.cfg.target_chat_id
@@ -459,9 +551,57 @@ class LCBoutiqueBot:
             return (chat.username or "").lower() == target.lstrip("@").lower()
         return chat.id == target
 
-    # ---------- schimbarea prețului ----------
+    # ---------- editarea postărilor (comanda /pret și mini-aplicația) ----------
+
+    async def edit_post(self, post: StoredPost, product: dict, price_lei: int, category: str) -> StoredPost:
+        """Rescrie postarea cu datele noi. Dacă se schimbă topicul, postarea e mutată (republicată)."""
+        new_text = format_post(Product(**product), price_lei)
+        if fits_caption(new_text) is False and post.is_caption:
+            raise ValueError("Textul este prea lung pentru a fi sub poze (maxim 1024 de caractere).")
+        moved = category != post.category and self.topics.thread_for(category) != post.thread_id
+        if moved:
+            media = [Media(**m) for m in post.media]
+            sent = await self._send(new_text, media, category)
+            await self._delete_messages(post.message_ids)
+            post.text_message_id, post.is_caption = sent.text_message_id, sent.is_caption
+            post.message_ids, post.media_group_ids, post.thread_id = (
+                sent.message_ids, sent.media_group_ids, sent.thread_id,
+            )
+        else:
+            await self._edit_text(post, new_text)
+        post.product, post.price_lei, post.category = product, price_lei, category
+        self.storage.update_post(post)
+        return post
+
+    async def _edit_text(self, post: StoredPost, new_text: str) -> None:
+        bot = self.app.bot
+        try:
+            if post.is_caption:
+                await bot.edit_message_caption(
+                    self.cfg.target_chat_id, post.text_message_id, caption=new_text, parse_mode=ParseMode.HTML
+                )
+            else:
+                await bot.edit_message_text(
+                    new_text, self.cfg.target_chat_id, post.text_message_id, parse_mode=ParseMode.HTML
+                )
+        except BadRequest as exc:
+            if "not modified" not in str(exc).lower():
+                raise
+
+    async def delete_post(self, post: StoredPost) -> None:
+        await self._delete_messages(post.message_ids)
+        self.storage.delete_post(post.id)
+
+    async def _delete_messages(self, message_ids: list[int]) -> None:
+        if not message_ids:
+            return
+        try:
+            await self.app.bot.delete_messages(self.cfg.target_chat_id, message_ids)
+        except TelegramError:
+            log.exception("Nu am putut șterge mesajele %s", message_ids)
 
     async def on_price(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """/pret 750 ca răspuns la postare (grupul de vânzare) sau la confirmarea ✅ (grupul privat)."""
         msg = update.effective_message
         chat = update.effective_chat
         if msg is None or chat is None or msg.reply_to_message is None:
@@ -474,42 +614,35 @@ class LCBoutiqueBot:
             # în grupul de vânzare: doar administratorii, ca răspuns la postarea botului
             if not await self._is_admin(chat.id, msg):
                 return
-            post = self._published_from_reply(reply)
+            if reply.from_user is None or reply.from_user.id != self.app.bot.id:
+                return
+            post = self.storage.find_by_message(reply.message_id, reply.media_group_id)
         elif chat.id in (self.cfg.source_chat_id, self.cfg.report_chat_id):
             if self.cfg.allowed_user_ids and msg.from_user and msg.from_user.id not in self.cfg.allowed_user_ids:
                 return
             match = _POST_LINK.search(reply.text or "")
-            post = self._published.get(int(match.group(1))) if match else None
-            if match and post is None:
-                await msg.reply_text(
-                    "Nu mai am textul acestei postări (botul a fost repornit între timp). "
-                    "Răspundeți cu /pret direct la postare, în grupul de vânzare."
-                )
-                return
+            post = self.storage.find_by_message(int(match.group(1))) if match else None
         else:
             return
 
-        if post is None:
-            await msg.reply_text("Răspundeți cu /pret 750 la postarea publicată de bot (la textul cu prețul).")
-            return
-        new_html = set_price(post.html, price)
-        if new_html is None:
-            await msg.reply_text("Nu găsesc rândul cu prețul în această postare.")
-            return
         try:
-            if post.is_caption:
-                await self.app.bot.edit_message_caption(
-                    self.cfg.target_chat_id, post.message_id, caption=new_html, parse_mode=ParseMode.HTML
-                )
+            if post is not None:
+                await self.edit_post(post, post.product, price, post.category)
+            elif in_sales_group and (old := _legacy_text(reply)):
+                # postare publicată înainte de baza de date: schimbăm doar cifra
+                new_text = set_price(old[0], price)
+                if new_text is None:
+                    raise ValueError("Nu găsesc rândul cu prețul în această postare.")
+                await self._edit_text(new_post(
+                    category="", product={}, price_lei=price, text_message_id=reply.message_id,
+                    is_caption=old[1], message_ids=[], media_group_ids=[], media=[], thread_id=None,
+                ), new_text)
             else:
-                await self.app.bot.edit_message_text(
-                    new_html, self.cfg.target_chat_id, post.message_id, parse_mode=ParseMode.HTML
-                )
-        except TelegramError as exc:
+                await msg.reply_text("Răspundeți cu /pret 750 la postarea botului sau la confirmarea ✅.")
+                return
+        except (TelegramError, ValueError) as exc:
             await msg.reply_text(f"❌ Nu am putut schimba prețul: {exc}")
             return
-        post.html = new_html
-        self._published[post.message_id] = post
 
         if in_sales_group:
             try:
@@ -519,32 +652,31 @@ class LCBoutiqueBot:
         else:
             await msg.reply_text(f"✅ Prețul a fost schimbat: {price} lei")
 
-    def _published_from_reply(self, reply: Message) -> Published | None:
-        if reply.from_user is None or reply.from_user.id != self.app.bot.id:
-            return None
-        if reply.message_id in self._published:
-            return self._published[reply.message_id]
-        # răspuns la altă poză din album: căutăm mesajul cu text din același album
-        if reply.media_group_id:
-            for post in self._published.values():
-                if reply.media_group_id in post.media_group_ids:
-                    return post
-        # postare mai veche (de dinainte de repornire): textul e chiar în mesaj
-        html_text = reply.caption_html if reply.caption else (reply.text_html if reply.text else None)
-        if html_text and "Preț" in html_text:
-            return Published(reply.message_id, html_text, is_caption=bool(reply.caption))
-        return None
-
     async def _is_admin(self, chat_id: int, msg: Message) -> bool:
         if msg.sender_chat and msg.sender_chat.id == chat_id:
             return True  # administrator care scrie anonim, în numele grupului
         if msg.from_user is None:
             return False
-        try:
-            member = await self.app.bot.get_chat_member(chat_id, msg.from_user.id)
-        except TelegramError:
-            return False
-        return member.status in ("administrator", "creator", "owner")
+        return await self.user_can_edit(msg.from_user.id, chats=(chat_id,))
+
+    async def user_can_edit(self, user_id: int, chats: tuple | None = None) -> bool:
+        """Proprietara/ajutoarele: din ALLOWED_USER_IDS, membre ale grupului privat sau admine în grupul de vânzare."""
+        if user_id in self.cfg.allowed_user_ids:
+            return True
+        bot = self.app.bot
+        checks = chats or (self.cfg.source_chat_id, self.cfg.target_chat_id)
+        for chat_id in checks:
+            if not chat_id:
+                continue
+            try:
+                member = await bot.get_chat_member(chat_id, user_id)
+            except TelegramError:
+                continue
+            if member.status in ("administrator", "creator", "owner"):
+                return True
+            if chat_id == self.cfg.source_chat_id and member.status in ("member", "restricted"):
+                return True
+        return False
 
     async def _report(self, chat_id: int, reply_to: int, text: str) -> None:
         """Mesaj pentru proprietară (în grupul sursă sau în chatul de rapoarte)."""
@@ -557,6 +689,14 @@ class LCBoutiqueBot:
 
     async def on_error(self, update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
         log.error("Eroare Telegram", exc_info=context.error)
+
+
+def _legacy_text(msg: Message) -> tuple[str, bool] | None:
+    """Textul (HTML) unei postări vechi și dacă e caption; None dacă nu are preț."""
+    html_text = msg.caption_html if msg.caption else (msg.text_html if msg.text else None)
+    if html_text and "Preț" in html_text:
+        return html_text, bool(msg.caption)
+    return None
 
 
 def _topic_name(msg: Message) -> str | None:

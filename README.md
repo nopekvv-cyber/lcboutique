@@ -27,11 +27,24 @@ Culori: marsala, negru, roșu, roz
 📩 Comandă pe Instagram: poza, codul, mărimea, culoarea și nr. de telefon
 ```
 
-## Schimbarea prețului
+## Mini-aplicația de editare
 
-- **Din grupul privat:** răspundeți (Reply) la confirmarea ✅ a botului cu `/pret 750`.
-- **Din grupul de vânzare:** răspundeți la postare (la textul cu prețul) cu `/pret 750`. Merge doar pentru
-  administratori; comanda se șterge imediat, clientele nu o văd.
+În chatul privat cu botul apare butonul **📝 Editare** (sau scrieți `/app`). Din ea puteți:
+
+- căuta postările publicate (după cod sau nume) și filtra pe topic;
+- schimba denumirea, codul, prețul, mărimile, materialul, compoziția, culorile, măsurătorile;
+- schimba topicul (postarea se mută automat în topicul nou) sau șterge postarea;
+- la **Setări**: cursul grivnei și al dolarului și costul transportului.
+
+Acces au doar membrele grupului privat sursă, administratoarele grupului de vânzare și `ALLOWED_USER_IDS`.
+
+Configurare în Railway (o singură dată):
+1. **Settings → Networking → Generate Domain** (portul îl setează Railway singur). Botul preia adresa automat.
+2. **Volume:** click dreapta pe serviciu → **Attach Volume**, cu mount path `/app/data`. Aici se păstrează
+   postările și setările; fără volum se pierd la fiecare redeploy.
+
+Prețul se poate schimba și rapid, cu `/pret 750` ca răspuns la confirmarea ✅ (grupul privat) sau la postare
+(grupul de vânzare, doar administratoare).
 
 ## Cum postați în grupul sursă
 

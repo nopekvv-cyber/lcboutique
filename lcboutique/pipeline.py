@@ -6,7 +6,7 @@ from dataclasses import dataclass, field
 
 from .config import PricingConfig
 from .formatter import format_post
-from .models import CATEGORY_ORDER, Analysis, SupplierPrice
+from .models import CATEGORY_ORDER, Analysis, Product, SupplierPrice
 from .pricing import PricingError, calculate_price, find_drop_price
 
 
@@ -23,6 +23,9 @@ class ReadyPost:
     text: str  # HTML
     media: list[Media]
     summary: str  # pentru confirmarea din grupul sursă (conține calculul)
+    product: Product | None = None
+    price_lei: int = 0
+    calc: str = ""
     source_chat_id: int = 0
     source_message_id: int = 0
 
@@ -75,6 +78,9 @@ def build_posts(
                 text=format_post(product, price.final_lei),
                 media=media,
                 summary=f"{product.title} — cod {product.code or '—'} — {price.final_lei} lei\n{price.explain(cfg)}",
+                product=product,
+                price_lei=price.final_lei,
+                calc=price.explain(cfg),
             )
         )
     return result
