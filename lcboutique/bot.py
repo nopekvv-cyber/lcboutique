@@ -29,6 +29,7 @@ from .formatter import fits_caption, format_post, set_price
 from .models import TOPICS, Product
 from .pipeline import Media, ReadyPost, build_posts
 from .storage import Post as StoredPost
+from .importer import legacy_post
 from .storage import Storage, new_post
 from .topics import TopicStore, decode, encode, match_topic
 
@@ -132,6 +133,14 @@ class LCBoutiqueBot:
         self.app.add_handler(
             MessageHandler(filters.Regex(r"^/(start|app|editare)(@\w+)?(\s.*)?$") & ~filters.UpdateType.EDITED, self.on_app)
         )
+        # /edit ca răspuns la o postare veche a botului: o aduce în mini-aplicație
+        self.app.add_handler(
+            MessageHandler(filters.Regex(r"^/edit(@\w+)?\s*$") & filters.REPLY & ~filters.UpdateType.EDITED, self.on_edit)
+        )
+        # /importa (în chatul privat cu botul): adaugă în aplicație toate postările vechi ale botului
+        self.app.add_handler(
+            MessageHandler(filters.Regex(r"^/(importa|stop)(@\w+)?(\s+\d+)?\s*$") & ~filters.UpdateType.EDITED, self.on_import)
+        )
         # /pret 750 ca răspuns la o postare (sau la confirmarea ✅): schimbă prețul postării
         self.app.add_handler(
             MessageHandler(filters.Regex(_PRICE_CMD) & filters.REPLY & ~filters.UpdateType.EDITED, self.on_price)
@@ -166,6 +175,8 @@ class LCBoutiqueBot:
         self._in_flight = 0
         self._publish_lock = asyncio.Lock()
         self._tasks: set[asyncio.Task] = set()
+        self._max_seen_id = int(self.storage.get_settings().get("max_message_id", 0))
+        self._import_task: asyncio.Task | None = None
 
     EDITABLE_SETTINGS = ("uah_to_lei", "usd_to_lei", "shipping_lei")
 
@@ -246,6 +257,9 @@ class LCBoutiqueBot:
 
     async def on_target_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         msg = update.effective_message
+        if msg and msg.message_id > self._max_seen_id:
+            self._max_seen_id = msg.message_id
+            self.storage.set_setting("max_message_id", str(msg.message_id))
         if msg and msg.is_topic_message and msg.message_thread_id:
             # doar topicurile încă necunoscute (nu suprascriem ce a fost setat cu /topic)
             if msg.message_thread_id in self.topics.threads.values():
@@ -558,7 +572,10 @@ class LCBoutiqueBot:
         new_text = format_post(Product(**product), price_lei)
         if fits_caption(new_text) is False and post.is_caption:
             raise ValueError("Textul este prea lung pentru a fi sub poze (maxim 1024 de caractere).")
-        moved = category != post.category and self.topics.thread_for(category) != post.thread_id
+        legacy = post.extra.get("legacy", False)
+        moved = (
+            not legacy and category != post.category and self.topics.thread_for(category) != post.thread_id
+        )
         if moved:
             media = [Media(**m) for m in post.media]
             sent = await self._send(new_text, media, category)
@@ -589,6 +606,8 @@ class LCBoutiqueBot:
                 raise
 
     async def delete_post(self, post: StoredPost) -> None:
+        if post.extra.get("legacy"):
+            raise ValueError("Postare veche: ștergeți-o direct din Telegram (botul nu îi știe toate pozele).")
         await self._delete_messages(post.message_ids)
         self.storage.delete_post(post.id)
 
@@ -599,6 +618,143 @@ class LCBoutiqueBot:
             await self.app.bot.delete_messages(self.cfg.target_chat_id, message_ids)
         except TelegramError:
             log.exception("Nu am putut șterge mesajele %s", message_ids)
+
+    # ---------- postările vechi ----------
+
+    def _category_for_thread(self, thread_id: int | None) -> str:
+        for key, thread in self.topics.threads.items():
+            if thread_id and thread == thread_id:
+                return key
+        return ""
+
+    def _import_message(self, msg: Message, message_id: int, thread_id: int | None) -> StoredPost | None:
+        """Adaugă în baza de date o postare veche a botului (dacă nu e deja)."""
+        existing = self.storage.find_by_message(message_id, msg.media_group_id)
+        if existing:
+            return existing
+        legacy = _legacy_text(msg)
+        if legacy is None:
+            return None
+        photo = None
+        if msg.photo:
+            small = [p for p in msg.photo if max(p.width, p.height) <= PREVIEW_MAX_SIDE]
+            preview = (small[-1] if small else msg.photo[-1]).file_id
+            photo = {"kind": "photo", "file_id": msg.photo[-1].file_id, "preview_id": preview}
+        post = legacy_post(
+            legacy[0], legacy[1], message_id, self._category_for_thread(thread_id), msg.media_group_id, photo
+        )
+        if post is None:
+            return None
+        post.thread_id = thread_id
+        return self.storage.add_post(post)
+
+    async def on_edit(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """/edit ca răspuns la o postare a botului în grupul de vânzare (doar administratoare)."""
+        msg = update.effective_message
+        chat = update.effective_chat
+        if msg is None or chat is None or not self._is_target_chat(chat):
+            return
+        if not await self._is_admin(chat.id, msg):
+            return
+        reply = msg.reply_to_message
+        post = None
+        if reply.from_user and reply.from_user.id == self.app.bot.id:
+            post = self._import_message(reply, reply.message_id, reply.message_thread_id if reply.is_topic_message else None)
+        try:
+            await msg.delete()
+        except TelegramError:
+            pass
+        text = (
+            f"✅ Postarea „{post.product.get('title')}” e în mini-aplicație (nr. {post.id})."
+            if post
+            else "⚠️ /edit merge doar ca răspuns la textul cu prețul al unei postări publicate de bot."
+        )
+        await self._report(self.cfg.report_chat_id, 0, text)
+
+    async def on_import(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        msg = update.effective_message
+        chat = update.effective_chat
+        if msg is None or chat is None:
+            return
+        if chat.type != "private" or not (msg.from_user and await self.user_can_edit(msg.from_user.id)):
+            if chat.type == "private":
+                return
+            await msg.reply_text("Scrieți /importa în chatul privat cu botul.")
+            return
+        words = (msg.text or "").split()
+        if words[0].lstrip("/").startswith("stop"):
+            if self._import_task and not self._import_task.done():
+                self._import_task.cancel()
+                await msg.reply_text("Importul a fost oprit.")
+            return
+        if self._import_task and not self._import_task.done():
+            await msg.reply_text("Importul rulează deja. /stop îl oprește.")
+            return
+        latest = max(
+            [int(words[1])] if len(words) > 1 else
+            [self._max_seen_id] + [p.text_message_id for p in self.storage.list_posts(limit=1)]
+        )
+        if latest <= 0:
+            await msg.reply_text(
+                "Nu știu încă ultimul mesaj din grupul de vânzare. Deschideți ultima postare, apăsați „Copy link” "
+                "și scrieți /importa urmat de numărul de la finalul linkului (ex. /importa 13600)."
+            )
+            return
+        self._import_task = asyncio.create_task(self._import_history(chat.id, latest))
+
+    async def _import_history(self, dump_chat_id: int, latest_id: int) -> None:
+        """Parcurge mesajele grupului (de la cel mai nou spre cel mai vechi) și importă postările botului.
+
+        Botul nu poate citi istoria grupului, așa că redirecționează fiecare mesaj în chatul privat
+        (fără notificare), îl citește și îl șterge imediat.
+        """
+        bot = self.app.bot
+        status = await bot.send_message(
+            dump_chat_id, f"⏳ Încep importul: {latest_id} mesaje de verificat. Mesajele care apar pentru o "
+            "clipă aici se șterg singure. /stop oprește importul."
+        )
+        found = 0
+        try:
+            for message_id in range(latest_id, 0, -1):
+                if self.storage.find_by_message(message_id) is None:
+                    found += await self._import_one(dump_chat_id, message_id)
+                if message_id % 250 == 0:
+                    try:
+                        await status.edit_text(f"⏳ Import: am ajuns la mesajul {message_id}. Postări găsite: {found}.")
+                    except TelegramError:
+                        pass
+            await status.edit_text(f"✅ Import terminat. Postări vechi adăugate în aplicație: {found}.")
+        except asyncio.CancelledError:
+            await status.edit_text(f"⏹ Import oprit. Postări adăugate până acum: {found}.")
+            raise
+        except TelegramError as exc:
+            log.exception("Importul a eșuat")
+            await status.edit_text(f"❌ Importul s-a oprit: {exc}. Postări adăugate: {found}.")
+
+    async def _import_one(self, dump_chat_id: int, message_id: int) -> int:
+        bot = self.app.bot
+        for _ in range(5):
+            try:
+                copy = await bot.forward_message(
+                    dump_chat_id, self.cfg.target_chat_id, message_id, disable_notification=True
+                )
+                break
+            except RetryAfter as exc:
+                delay = exc.retry_after.total_seconds() if hasattr(exc.retry_after, "total_seconds") else exc.retry_after
+                await asyncio.sleep(float(delay) + 1)
+            except BadRequest:
+                return 0  # mesaj șters, mesaj de serviciu etc.
+        else:
+            return 0
+        try:
+            await copy.delete()
+        except TelegramError:
+            pass
+        origin = copy.forward_origin
+        sender = getattr(origin, "sender_user", None)
+        if sender is None or sender.id != bot.id:
+            return 0
+        return 1 if self._import_message(copy, message_id, None) else 0
 
     async def on_price(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """/pret 750 ca răspuns la postare (grupul de vânzare) sau la confirmarea ✅ (grupul privat)."""
@@ -681,7 +837,7 @@ class LCBoutiqueBot:
     async def _report(self, chat_id: int, reply_to: int, text: str) -> None:
         """Mesaj pentru proprietară (în grupul sursă sau în chatul de rapoarte)."""
         target = self.cfg.report_chat_id
-        reply = ReplyParameters(reply_to, allow_sending_without_reply=True) if target == chat_id else None
+        reply = ReplyParameters(reply_to, allow_sending_without_reply=True) if reply_to and target == chat_id else None
         try:
             await self.app.bot.send_message(target, text[:4000], reply_parameters=reply)
         except TelegramError:

@@ -130,8 +130,8 @@ class WebApp:
                 if key in body:
                     product[key] = [str(x).strip() for x in body[key] if str(x).strip()]
             price = int(body.get("price_lei", post.price_lei))
-            category = body.get("category", post.category)
-            if category not in TOPICS or price <= 0 or not product.get("title"):
+            category = body.get("category") or post.category
+            if (category not in TOPICS and category != post.category) or price <= 0 or not product.get("title"):
                 raise ValueError("Verificați titlul, prețul și topicul.")
             if category in get_args(Category):
                 product["category"] = category
@@ -145,7 +145,10 @@ class WebApp:
 
     async def delete_post(self, request: web.Request) -> web.Response:
         post = self._post_or_404(request)
-        await self.bot.delete_post(post)
+        try:
+            await self.bot.delete_post(post)
+        except ValueError as exc:
+            return web.json_response({"error": str(exc)}, status=400)
         return web.json_response({"ok": True})
 
     async def photo(self, request: web.Request) -> web.Response:
@@ -198,6 +201,7 @@ class WebApp:
             "created_at": post.created_at,
             "photos": sum(1 for m in post.media if m.get("kind") == "photo"),
             "link": self.bot._post_link(post.text_message_id),
+            "legacy": bool(post.extra.get("legacy")),
         }
 
 

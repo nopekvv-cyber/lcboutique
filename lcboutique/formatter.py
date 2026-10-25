@@ -86,3 +86,47 @@ def set_price(html_text: str, price_lei: int) -> str | None:
     if not _PRICE_LINE.search(html_text):
         return None
     return _PRICE_LINE.sub(lambda m: f"{m.group(1)}{price_lei}{m.group(2)}", html_text, count=1)
+
+
+_FIELD = re.compile(r"^(Cod/Model|Mărimi|Material|Culori|💰\s*Preț)\s*:\s*(.*)$")
+
+
+def parse_post(html_text: str) -> tuple[dict, int] | None:
+    """Câmpurile unei postări publicate de bot (și din formatele mai vechi) + prețul; None dacă nu are preț."""
+    text = html.unescape(re.sub(r"<[^>]+>", "", html_text))
+    lines = [line.strip() for line in text.splitlines()]
+    fields = {"title": "", "code": "", "sizes": "", "material": "", "composition": "", "colors": [], "measurements": []}
+    price = None
+    in_measurements = False
+    for line in lines:
+        if not line:
+            in_measurements = False
+            continue
+        if not fields["title"]:
+            fields["title"] = line
+            continue
+        if line.startswith("📐"):
+            in_measurements = True
+            continue
+        if in_measurements and line.startswith("•"):
+            fields["measurements"].append(line.lstrip("• ").strip())
+            continue
+        match = _FIELD.match(line)
+        if not match:
+            continue
+        label, value = match.group(1), match.group(2).strip()
+        if label == "Cod/Model":
+            fields["code"] = value
+        elif label == "Mărimi":
+            fields["sizes"] = value
+        elif label == "Material":
+            inner = re.match(r"^(.*?)\s*\(([^()]*)\)$", value)
+            fields["material"], fields["composition"] = (inner.group(1), inner.group(2)) if inner else (value, "")
+        elif label == "Culori":
+            fields["colors"] = [c.strip() for c in value.split(",") if c.strip()]
+        else:
+            digits = re.sub(r"\D", "", value.split("lei")[0])
+            price = int(digits) if digits else None
+    if price is None or not fields["title"]:
+        return None
+    return fields, price

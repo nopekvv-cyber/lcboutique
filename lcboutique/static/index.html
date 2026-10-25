@@ -87,7 +87,9 @@
       <label for="e-composition">Compoziție</label><input id="e-composition">
       <label for="e-colors">Culori (separate prin virgulă)</label><input id="e-colors">
       <label for="e-measurements">Măsurători (câte una pe rând)</label><textarea id="e-measurements"></textarea>
-      <label for="e-category">Topic</label><select id="e-category"></select>
+      <label for="e-category">Topic</label><select id="e-category"><option value="">— necunoscut —</option></select>
+      <div class="note hidden" id="e-legacy">Postare veche: textul și prețul se pot edita. Mutarea în alt topic și
+        ștergerea se fac direct din Telegram.</div>
       <div class="note" id="e-calc"></div>
     </div>
     <button class="btn" id="save">Salvează</button>
@@ -200,6 +202,8 @@ async function openEditor(id) {
     $("e-category").value = post.category;
     $("e-calc").textContent = post.calc ? "Calcul inițial: " + post.calc : "";
     $("open-post").href = post.link;
+    $("e-legacy").classList.toggle("hidden", !post.legacy);
+    $("delete").classList.toggle("hidden", !!post.legacy);
     $("e-photo").removeAttribute("src");
     photoUrl(id).then((url) => { if (url) $("e-photo").src = url; });
     show("editor");
@@ -214,7 +218,7 @@ async function save() {
     colors: $("e-colors").value.split(","), measurements: $("e-measurements").value.split("\n"),
     category: $("e-category").value,
   };
-  const moving = body.category !== post.category;
+  const moving = body.category !== post.category && !post.legacy;
   $("save").disabled = true;
   try {
     await api(`/api/posts/${post.id}`, { method: "PUT", body: JSON.stringify(body) });

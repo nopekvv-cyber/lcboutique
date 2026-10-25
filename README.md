@@ -43,6 +43,14 @@ Configurare în Railway (o singură dată):
 2. **Volume:** click dreapta pe serviciu → **Attach Volume**, cu mount path `/app/data`. Aici se păstrează
    postările și setările; fără volum se pierd la fiecare redeploy.
 
+**Postările vechi ale botului** (publicate înainte de mini-aplicație):
+- una câte una: în grupul de vânzare, Reply la textul cu prețul și scrieți `/edit` — apare în aplicație;
+- toate odată: în chatul privat cu botul scrieți `/importa`. Botul parcurge grupul în fundal (poate dura
+  câteva ore; mesajele care clipesc în chat se șterg singure) și raportează câte a găsit. `/stop` îl oprește.
+
+La postările vechi se pot schimba textul și prețul; mutarea în alt topic și ștergerea se fac din Telegram,
+pentru că botul nu le știe toate pozele. Postările puse manual (nu de bot) nu pot fi editate de bot.
+
 Prețul se poate schimba și rapid, cu `/pret 750` ca răspuns la confirmarea ✅ (grupul privat) sau la postare
 (grupul de vânzare, doar administratoare).
 
